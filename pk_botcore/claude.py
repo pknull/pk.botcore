@@ -61,6 +61,7 @@ async def invoke_claude(
     persona_text: str = "",
     speaker_context: str = "",
     attachment_context: str = "",
+    command_docs: str = "",
     session_id: str | None = None,
     timeout: int = 120,
     permission_mode: str = "default",
@@ -77,6 +78,7 @@ async def invoke_claude(
         persona_text: Persona markdown to prepend
         speaker_context: Speaker identification context
         attachment_context: Attachment paths context
+        command_docs: Auto-generated command documentation from CommandRegistry
         session_id: Optional session ID for continuity
         timeout: Command timeout in seconds
         permission_mode: Permission mode for tool execution
@@ -104,11 +106,21 @@ async def invoke_claude(
             duration_ms=0
         )
 
-    # Build full prompt with persona and context
+    # Build full prompt with persona, commands, and context
+    sections = []
     if persona_text:
-        full_prompt = f"{persona_text}\n\n---\n\n{speaker_context}{attachment_context}\n\nMessage:\n{prompt}"
+        sections.append(persona_text)
+    if command_docs:
+        sections.append(command_docs)
+
+    preamble = "\n\n---\n\n".join(sections) if sections else ""
+    context_parts = [s for s in [speaker_context, attachment_context] if s]
+    context = "".join(context_parts)
+
+    if preamble:
+        full_prompt = f"{preamble}\n\n---\n\n{context}\n\nMessage:\n{prompt}"
     else:
-        full_prompt = f"{speaker_context}{attachment_context}\n\nMessage:\n{prompt}"
+        full_prompt = f"{context}\n\nMessage:\n{prompt}"
 
     options = ClaudeAgentOptions(
         cwd=cwd,
@@ -185,27 +197,52 @@ async def invoke_claude(
         )
 
 
-# Relevance check prompt template
+# Relevance check prompt template - permissive (responds to general requests)
 RELEVANCE_PROMPT = """You are a relevance filter for an AI assistant named {bot_name}.
-Determine if this message warrants a response from the assistant.
+Determine if this message warrants a response from {bot_name}.
 Respond ONLY with "yes" or "no".
 
 Respond "yes" if the message:
-- Is directed at an AI/bot/assistant
-- Asks a question that an AI could help with
-- Requests information, advice, or assistance
-- Mentions the assistant by name or role
-
+- Is directed at {bot_name} by name
+- Asks a question that {bot_name} could help with
+- Is a general request not addressed to anyone specific
+{topics_section}
 Respond "no" if the message:
+- Is addressed to someone else by name (any name that is NOT {bot_name})
 - Is casual conversation between humans
 - Is a reaction like "lol", "nice", "brb", emoji-only
-- Is clearly not seeking AI assistance
 - Is a simple greeting with no question
+{out_of_scope_section}
+Message: {content}"""
+
+# Relevance check prompt template - strict (only responds to specific domain)
+RELEVANCE_PROMPT_STRICT = """You are a relevance filter for an AI assistant named {bot_name}.
+{bot_name} is a SPECIALIST that ONLY handles specific topics.
+Determine if this message is within {bot_name}'s domain.
+Respond ONLY with "yes" or "no".
+
+{bot_name}'s domain (ONLY respond "yes" for these):
+{scope_section}
+Respond "yes" ONLY if the message:
+- Is directed at {bot_name} by name, OR
+- Clearly falls within {bot_name}'s domain listed above
+
+Respond "no" if the message:
+- Is addressed to someone else by name
+- Is about ANY topic not in {bot_name}'s domain
+- Is a general utility request (weather, reminders, web search, etc.)
+- Is casual conversation, reactions, or greetings
 
 Message: {content}"""
 
 
-async def check_message_relevance(content: str, bot_name: str = "Bot") -> bool:
+async def check_message_relevance(
+    content: str,
+    bot_name: str = "Bot",
+    topics_of_interest: list[str] | None = None,
+    out_of_scope: list[str] | None = None,
+    strict: bool = False
+) -> bool:
     """
     Quick check if a message warrants a response from the bot.
 
@@ -215,6 +252,12 @@ async def check_message_relevance(content: str, bot_name: str = "Bot") -> bool:
     Args:
         content: The message content to check
         bot_name: The bot's name for the prompt
+        topics_of_interest: Optional list of topics the bot will engage with
+            even if not directly addressed
+        out_of_scope: Optional list of topics the bot should NOT respond to,
+            even if the request seems general (for permissive mode)
+        strict: If True, ONLY respond to direct address or topics in scope.
+            General requests outside the domain get "no". Use for specialist bots.
 
     Returns:
         True if the message is relevant, False otherwise
@@ -232,7 +275,40 @@ async def check_message_relevance(content: str, bot_name: str = "Bot") -> bool:
     except ImportError:
         return True  # Fail open if SDK not available
 
-    prompt = RELEVANCE_PROMPT.format(bot_name=bot_name, content=content)
+    if strict:
+        # Strict mode: only respond to direct address or explicit domain match
+        if topics_of_interest:
+            scope_list = "\n".join(f"- {topic}" for topic in topics_of_interest)
+            scope_section = scope_list
+        else:
+            scope_section = "- (no specific domain defined)"
+
+        prompt = RELEVANCE_PROMPT_STRICT.format(
+            bot_name=bot_name,
+            content=content,
+            scope_section=scope_section
+        )
+    else:
+        # Permissive mode: respond to general requests too
+        if topics_of_interest:
+            topics_list = "\n".join(f"- Discusses {topic}" for topic in topics_of_interest)
+            topics_section = f"\nAlso respond \"yes\" if the message:\n{topics_list}\n"
+        else:
+            topics_section = ""
+
+        # Build out-of-scope section for permissive mode
+        if out_of_scope:
+            oos_list = "\n".join(f"- Is about {topic}" for topic in out_of_scope)
+            out_of_scope_section = f"\nAlso respond \"no\" if the message:\n{oos_list}\n"
+        else:
+            out_of_scope_section = ""
+
+        prompt = RELEVANCE_PROMPT.format(
+            bot_name=bot_name,
+            content=content,
+            topics_section=topics_section,
+            out_of_scope_section=out_of_scope_section
+        )
 
     options = ClaudeAgentOptions(
         model="haiku",

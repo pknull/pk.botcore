@@ -24,20 +24,24 @@ class CmdResult:
     error: str | None = None
 
 
-def claude_command(name: str):
+def claude_command(name: str, *, description: str = "", args: str = ""):
     """
     Decorator to mark a method as invocable by Claude via [CMD:name:args].
 
     Usage:
-        @claude_command("skill")
-        async def cmd_skill(self, ctx, char_name: str, skill_name: str) -> CmdResult:
+        @claude_command("skill", description="Roll a skill check", args="discord_id, skill_name, difficulty?, modifier?")
+        async def cmd_skill(self, ctx, discord_id: str, skill_name: str, ...) -> CmdResult:
             ...
 
     Args:
         name: The command name used in [CMD:name:args] directives
+        description: Human-readable description of what the command does
+        args: Argument format string (use ? suffix for optional args)
     """
     def decorator(func: Callable[..., Awaitable[CmdResult]]):
         func._claude_command = name
+        func._claude_command_desc = description
+        func._claude_command_args = args
         return func
     return decorator
 
@@ -74,6 +78,36 @@ class CommandRegistry:
     def list_commands(self) -> list[str]:
         """Return list of available command names."""
         return list(self._commands.keys())
+
+    def get_command_docs(self) -> str:
+        """
+        Generate documentation for all registered commands.
+
+        Returns markdown-formatted documentation suitable for injection
+        into Claude's system prompt.
+        """
+        if not self._commands:
+            return ""
+
+        lines = [
+            "## Executable Commands",
+            "",
+            "You can execute commands by including directives in your response.",
+            "Format: `[CMD:action:arg1:arg2:...]`",
+            "",
+            "| Command | Args | Description |",
+            "|---------|------|-------------|",
+        ]
+
+        for name, method in sorted(self._commands.items()):
+            desc = getattr(method, '_claude_command_desc', '') or 'No description'
+            args = getattr(method, '_claude_command_args', '') or 'none'
+            lines.append(f"| `{name}` | {args} | {desc} |")
+
+        lines.append("")
+        lines.append("Commands are executed automatically and stripped from the displayed response.")
+
+        return "\n".join(lines)
 
     async def execute(self, cmd_string: str, ctx: Any) -> CmdResult:
         """

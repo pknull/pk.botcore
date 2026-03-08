@@ -19,5 +19,11 @@ setup(
             "pytest>=7.0.0",
             "pytest-asyncio>=0.21.0",
         ],
+        "codex": [
+            "openai-codex-sdk>=0.1.0",
+        ],
+        "all": [
+            "openai-codex-sdk>=0.1.0",
+        ],
     },
 )

@@ -26,6 +26,16 @@ from .claude import (
     STATUS_THINKING,
     STATUS_TOOL,
 )
+from .codex import (
+    CodexResponse,
+    invoke_codex,
+    check_message_relevance_codex,
+)
+from .llm import (
+    LLMResponse,
+    invoke_llm,
+    check_relevance,
+)
 from .chunking import chunk_message
 from .http import get_http_session, close_http_session, fetch_json, get_image_data
 from .embeds import make_embed
@@ -38,6 +48,7 @@ from .cmd_executor import (
     clean_response,
     process_response_async,
 )
+from .interactions import InteractionLogger
 
 __version__ = "0.1.0"
 
@@ -60,6 +71,14 @@ __all__ = [
     "check_message_relevance",
     "STATUS_THINKING",
     "STATUS_TOOL",
+    # Codex
+    "CodexResponse",
+    "invoke_codex",
+    "check_message_relevance_codex",
+    # Unified LLM interface
+    "LLMResponse",
+    "invoke_llm",
+    "check_relevance",
     # Chunking
     "chunk_message",
     # HTTP
@@ -77,4 +96,6 @@ __all__ = [
     "extract_commands",
     "clean_response",
     "process_response_async",
+    # Interactions
+    "InteractionLogger",
 ]

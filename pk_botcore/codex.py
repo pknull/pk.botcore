@@ -129,10 +129,13 @@ async def invoke_codex(
     start_time = time.time()
 
     try:
-        # Configure thread options
+        # Configure thread options. Read-only turns stay hard-locked, but
+        # write-authorized turns must not inherit an approval_policy=never lock.
+        approval_policy = "never" if sandbox_mode == "read-only" else "on-failure"
         thread_options = ThreadOptions(
             working_directory=cwd,
             sandbox_mode=sandbox_mode,
+            approval_policy=approval_policy,
         )
 
         codex = Codex()

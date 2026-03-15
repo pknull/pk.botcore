@@ -1,4 +1,4 @@
-"""Dynamic command registry for Claude [CMD:*] directives."""
+"""Dynamic command registry for LLM [CMD:*] directives."""
 
 import inspect
 import logging
@@ -24,12 +24,12 @@ class CmdResult:
     error: str | None = None
 
 
-def claude_command(name: str, *, description: str = "", args: str = ""):
+def llm_command(name: str, *, description: str = "", args: str = ""):
     """
-    Decorator to mark a method as invocable by Claude via [CMD:name:args].
+    Decorator to mark a method as invocable by LLM via [CMD:name:args].
 
     Usage:
-        @claude_command("skill", description="Roll a skill check", args="discord_id, skill_name, difficulty?, modifier?")
+        @llm_command("skill", description="Roll a skill check", args="discord_id, skill_name, difficulty?, modifier?")
         async def cmd_skill(self, ctx, discord_id: str, skill_name: str, ...) -> CmdResult:
             ...
 
@@ -39,19 +39,19 @@ def claude_command(name: str, *, description: str = "", args: str = ""):
         args: Argument format string (use ? suffix for optional args)
     """
     def decorator(func: Callable[..., Awaitable[CmdResult]]):
-        func._claude_command = name
-        func._claude_command_desc = description
-        func._claude_command_args = args
+        func._llm_command = name
+        func._llm_command_desc = description
+        func._llm_command_args = args
         return func
     return decorator
 
 
 class CommandRegistry:
     """
-    Registry of commands available for Claude to invoke.
+    Registry of commands available for LLM to invoke.
 
-    Scans loaded cogs for methods decorated with @claude_command and
-    allows Claude to invoke them via [CMD:action:args] directives.
+    Scans loaded cogs for methods decorated with @llm_command and
+    allows LLM to invoke them via [CMD:action:args] directives.
     """
 
     def __init__(self, bot: commands.Bot):
@@ -60,7 +60,7 @@ class CommandRegistry:
 
     def discover_commands(self) -> None:
         """
-        Scan loaded cogs for @claude_command decorated methods.
+        Scan loaded cogs for @llm_command decorated methods.
 
         Call this after all cogs are loaded to populate the registry.
         """
@@ -68,8 +68,8 @@ class CommandRegistry:
 
         for cog_name, cog in self.bot.cogs.items():
             for name, method in inspect.getmembers(cog, predicate=inspect.ismethod):
-                if hasattr(method, '_claude_command'):
-                    cmd_name = method._claude_command
+                if hasattr(method, '_llm_command'):
+                    cmd_name = method._llm_command
                     self._commands[cmd_name] = method
                     logger.info("Registered command: %s from %s.%s", cmd_name, cog_name, name)
 
@@ -84,7 +84,7 @@ class CommandRegistry:
         Generate documentation for all registered commands.
 
         Returns markdown-formatted documentation suitable for injection
-        into Claude's system prompt.
+        into the LLM system prompt.
         """
         if not self._commands:
             return ""
@@ -100,8 +100,8 @@ class CommandRegistry:
         ]
 
         for name, method in sorted(self._commands.items()):
-            desc = getattr(method, '_claude_command_desc', '') or 'No description'
-            args = getattr(method, '_claude_command_args', '') or 'none'
+            desc = getattr(method, '_llm_command_desc', '') or 'No description'
+            args = getattr(method, '_llm_command_args', '') or 'none'
             lines.append(f"| `{name}` | {args} | {desc} |")
 
         lines.append("")
@@ -155,7 +155,7 @@ def extract_commands(response_text: str) -> list[str]:
     Extract [CMD:*] directives from response text.
 
     Args:
-        response_text: Claude's full response text
+        response_text: LLM's full response text
 
     Returns:
         List of command strings (without brackets)
@@ -168,7 +168,7 @@ def clean_response(response_text: str) -> str:
     Remove [CMD:*] directives from response text.
 
     Args:
-        response_text: Claude's full response text
+        response_text: LLM's full response text
 
     Returns:
         Cleaned text with commands removed
@@ -185,10 +185,10 @@ async def process_response_async(
     ctx: Any
 ) -> tuple[str, list[CmdResult]]:
     """
-    Process Claude's response, extracting and executing [CMD:*] directives.
+    Process LLM response, extracting and executing [CMD:*] directives.
 
     Args:
-        response_text: Claude's full response text
+        response_text: LLM's full response text
         registry: The CommandRegistry to execute commands with
         ctx: Context object for command execution
 

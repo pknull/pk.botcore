@@ -18,7 +18,7 @@ pip install -e /home/pknull/Code/pk.botcore
 |--------|---------|
 | `sessions` | User session management (persistence across messages) |
 | `channels` | Channel listen mode configuration |
-| `claude` | Claude Agent SDK invocation with streaming |
+| `llm` | Unified LLM invocation (Claude, Codex) |
 | `chunking` | Discord message chunking (2000 char limit) |
 | `http` | Shared aiohttp session utilities |
 | `embeds` | Discord embed helpers |
@@ -33,25 +33,25 @@ from pk_botcore import (
     # Channels
     ChannelConfig, MODE_MENTION, MODE_LISTEN, MODE_IGNORE,
     load_channel_config, save_channel_config,
-    # Claude
-    ClaudeResponse, invoke_claude, check_message_relevance,
+    # LLM
+    LLMResponse, invoke_llm, check_relevance,
     # Utilities
     chunk_message, make_embed,
     get_http_session, close_http_session, fetch_json,
     # Commands
-    CommandRegistry, claude_command, CmdResult,
+    CommandRegistry, llm_command, CmdResult,
 )
 ```
 
 ## Command Registry
 
-Register cog methods for Claude to invoke via `[CMD:name:args]` directives:
+Register cog methods for LLM to invoke via `[CMD:name:args]` directives:
 
 ```python
-from pk_botcore import claude_command, CmdResult
+from pk_botcore import llm_command, CmdResult
 
 class MyCog(commands.Cog):
-    @claude_command("greet")
+    @llm_command("greet")
     async def cmd_greet(self, ctx, name: str) -> CmdResult:
         return CmdResult(success=True, message=f"Hello, {name}!")
 ```

@@ -61,6 +61,7 @@ async def invoke_codex(
     prompt: str,
     *,
     cwd: str,
+    model: str | None = None,
     persona_text: str = "",
     speaker_context: str = "",
     attachment_context: str = "",
@@ -77,6 +78,7 @@ async def invoke_codex(
     Args:
         prompt: User prompt to send to Codex
         cwd: Working directory for Codex
+        model: Optional Codex model override
         persona_text: Persona markdown to prepend
         speaker_context: Speaker identification context
         attachment_context: Attachment paths context
@@ -133,6 +135,7 @@ async def invoke_codex(
         # write-authorized turns must not inherit an approval_policy=never lock.
         approval_policy = "never" if sandbox_mode == "read-only" else "on-failure"
         thread_options = ThreadOptions(
+            model=model,
             working_directory=cwd,
             sandbox_mode=sandbox_mode,
             approval_policy=approval_policy,
@@ -143,7 +146,7 @@ async def invoke_codex(
         # Resume existing thread or start new one
         if thread_id:
             try:
-                thread = codex.resume_thread(thread_id)
+                thread = codex.resume_thread(thread_id, thread_options)
             except Exception as e:
                 logger.warning("Failed to resume thread %s: %s, starting fresh", thread_id, e)
                 thread = codex.start_thread(thread_options)

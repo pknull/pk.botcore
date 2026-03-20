@@ -27,6 +27,7 @@ from .llm import (
     LLMResponse,
     invoke_llm,
     check_relevance,
+    check_bot_continuation,
 )
 from .chunking import chunk_message
 from .http import get_http_session, close_http_session, fetch_json, get_image_data
@@ -61,6 +62,7 @@ __all__ = [
     "LLMResponse",
     "invoke_llm",
     "check_relevance",
+    "check_bot_continuation",
     "STATUS_THINKING",
     "STATUS_TOOL",
     # Chunking

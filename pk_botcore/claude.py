@@ -351,3 +351,75 @@ async def check_message_relevance(
     except Exception as e:
         logger.error("Relevance check failed: %s", e)
         return True  # Fail open
+
+
+BOT_CONTINUATION_PROMPT = """You are {bot_name}, deciding whether to continue a bot-to-bot conversation.
+
+Recent conversation:
+{context}
+
+The other bot ({other_bot}) just said: {message}
+
+Should you respond? Consider:
+- Is this exchange productive or interesting?
+- Are you going in circles or repeating yourselves?
+- Would a human (The Keeper) want to see this continue?
+- Is there new information or genuine engagement?
+- Have you already made your point?
+
+Respond ONLY with "yes" (continue) or "no" (disengage gracefully).
+If uncertain, lean toward "no" - let a human re-engage if needed."""
+
+
+async def check_bot_continuation(
+    bot_name: str,
+    other_bot: str,
+    message: str,
+    recent_context: list[tuple[str, str]],
+) -> bool:
+    """
+    Check if bot should continue a bot-to-bot conversation.
+
+    Uses Haiku for quick decision. Returns True to continue, False to disengage.
+    """
+    try:
+        from claude_agent_sdk import (
+            query,
+            ClaudeAgentOptions,
+            AssistantMessage,
+            TextBlock,
+        )
+    except ImportError:
+        return True  # Fail open
+
+    context_lines = [f"[{author}]: {msg}" for author, msg in recent_context]
+    context = "\n".join(context_lines) if context_lines else "(no recent context)"
+
+    prompt = BOT_CONTINUATION_PROMPT.format(
+        bot_name=bot_name,
+        other_bot=other_bot,
+        message=message,
+        context=context,
+    )
+
+    options = ClaudeAgentOptions(
+        model="haiku",
+        allowed_tools=[],
+        permission_mode="default",
+    )
+
+    try:
+        result_text = ""
+        async for msg in query(prompt=prompt, options=options):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        result_text += block.text
+
+        should_continue = result_text.strip().lower().startswith("yes")
+        logger.debug("Bot continuation check: %s -> %s", message[:50], should_continue)
+        return should_continue
+
+    except Exception as e:
+        logger.error("Bot continuation check failed: %s", e)
+        return True  # Fail open

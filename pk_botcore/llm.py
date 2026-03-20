@@ -11,6 +11,7 @@ from .claude import (
     ClaudeResponse,
     invoke_claude,
     check_message_relevance as check_relevance_claude,
+    check_bot_continuation,
 )
 from .codex import (
     CodexResponse,

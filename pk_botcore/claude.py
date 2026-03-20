@@ -360,15 +360,18 @@ Recent conversation:
 
 The other bot ({other_bot}) just said: {message}
 
-Should you respond? Consider:
-- Is this exchange productive or interesting?
-- Are you going in circles or repeating yourselves?
-- Would a human (The Keeper) want to see this continue?
-- Is there new information or genuine engagement?
-- Have you already made your point?
+Respond "yes" if ANY of these are true:
+- A human spoke recently (they're orchestrating or interested)
+- The other bot asked you a question or made a direct request
+- There's new information to engage with
+- The exchange is productive and interesting
 
-Respond ONLY with "yes" (continue) or "no" (disengage gracefully).
-If uncertain, lean toward "no" - let a human re-engage if needed."""
+Respond "no" ONLY if:
+- You're clearly going in circles (same points repeated 2+ times)
+- The conversation has run its natural course with no new threads
+- No humans have participated in the last several messages AND it feels stale
+
+Respond ONLY with "yes" or "no"."""
 
 
 async def check_bot_continuation(

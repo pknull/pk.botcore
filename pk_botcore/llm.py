@@ -58,6 +58,8 @@ async def invoke_llm(
     *,
     backend: Backend = "claude",
     cwd: str,
+    model: str | None = None,
+    fallback_model: str | None = None,
     persona_text: str = "",
     speaker_context: str = "",
     attachment_context: str = "",
@@ -76,6 +78,8 @@ async def invoke_llm(
         prompt: User prompt to send
         backend: "claude" or "codex"
         cwd: Working directory
+        model: Optional backend model override
+        fallback_model: Optional backend fallback model override
         persona_text: Persona markdown to prepend
         speaker_context: Speaker identification context
         attachment_context: Attachment paths context
@@ -94,6 +98,7 @@ async def invoke_llm(
         resp = await invoke_codex(
             prompt=prompt,
             cwd=cwd,
+            model=model,
             persona_text=persona_text,
             speaker_context=speaker_context,
             attachment_context=attachment_context,
@@ -111,6 +116,8 @@ async def invoke_llm(
         resp = await invoke_claude(
             prompt=prompt,
             cwd=cwd,
+            model=model,
+            fallback_model=fallback_model,
             persona_text=persona_text,
             speaker_context=speaker_context,
             attachment_context=attachment_context,
@@ -131,6 +138,7 @@ async def check_relevance(
     bot_name: str = "Bot",
     topics_of_interest: list[str] | None = None,
     out_of_scope: list[str] | None = None,
+    recent_context: list[tuple[str, str]] | None = None,
 ) -> bool:
     """
     Check if a message warrants a response from the bot.
@@ -143,6 +151,7 @@ async def check_relevance(
         bot_name: The bot's name for the prompt
         topics_of_interest: Optional list of topics the bot will engage with
         out_of_scope: Optional list of topics the bot should NOT respond to
+        recent_context: Optional list of (author_name, content) tuples for context
 
     Returns:
         True if the message is relevant, False otherwise
@@ -160,4 +169,5 @@ async def check_relevance(
             bot_name=bot_name,
             topics_of_interest=topics_of_interest,
             out_of_scope=out_of_scope,
+            recent_context=recent_context,
         )

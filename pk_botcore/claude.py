@@ -58,6 +58,8 @@ async def invoke_claude(
     *,
     cwd: str,
     allowed_tools: list[str],
+    model: str | None = None,
+    fallback_model: str | None = None,
     persona_text: str = "",
     speaker_context: str = "",
     attachment_context: str = "",
@@ -75,6 +77,8 @@ async def invoke_claude(
         prompt: User prompt to send to Claude
         cwd: Working directory for Claude
         allowed_tools: List of tools Claude can use
+        model: Optional Claude model override
+        fallback_model: Optional Claude fallback model override
         persona_text: Persona markdown to prepend
         speaker_context: Speaker identification context
         attachment_context: Attachment paths context
@@ -127,6 +131,8 @@ async def invoke_claude(
         allowed_tools=allowed_tools,
         permission_mode=permission_mode,
         resume=session_id,
+        model=model,
+        fallback_model=fallback_model,
     )
 
     logger.debug("Invoking Claude (session: %s, tools: %s)", session_id or "new", allowed_tools)
@@ -201,15 +207,16 @@ async def invoke_claude(
 RELEVANCE_PROMPT = """You are a relevance filter for an AI assistant named {bot_name}.
 Determine if this message warrants a response from {bot_name}.
 Respond ONLY with "yes" or "no".
-
+{context_section}
 Respond "yes" if the message:
 - Is directed at {bot_name} by name
 - Asks a question that {bot_name} could help with
 - Is a general request not addressed to anyone specific
+- Is a follow-up or continuation of a conversation {bot_name} is participating in
 {topics_section}
 Respond "no" if the message:
 - Is addressed to someone else by name (any name that is NOT {bot_name})
-- Is casual conversation between humans
+- Is casual conversation between humans that doesn't involve {bot_name}
 - Is a reaction like "lol", "nice", "brb", emoji-only
 - Is a simple greeting with no question
 {out_of_scope_section}
@@ -218,18 +225,19 @@ Message: {content}"""
 # Relevance check prompt template - strict (only responds to specific domain)
 RELEVANCE_PROMPT_STRICT = """You are a relevance filter for an AI assistant named {bot_name}.
 {bot_name} is a SPECIALIST that ONLY handles specific topics.
-Determine if this message is within {bot_name}'s domain.
+Determine if this message is within {bot_name}'s domain or is a continuation of an active conversation.
 Respond ONLY with "yes" or "no".
-
+{context_section}
 {bot_name}'s domain (ONLY respond "yes" for these):
 {scope_section}
 Respond "yes" ONLY if the message:
 - Is directed at {bot_name} by name, OR
-- Clearly falls within {bot_name}'s domain listed above
+- Clearly falls within {bot_name}'s domain listed above, OR
+- Is a follow-up to a conversation {bot_name} is actively participating in (check recent context)
 
 Respond "no" if the message:
 - Is addressed to someone else by name
-- Is about ANY topic not in {bot_name}'s domain
+- Is about ANY topic not in {bot_name}'s domain AND not a conversation follow-up
 - Is a general utility request (weather, reminders, web search, etc.)
 - Is casual conversation, reactions, or greetings
 
@@ -241,7 +249,8 @@ async def check_message_relevance(
     bot_name: str = "Bot",
     topics_of_interest: list[str] | None = None,
     out_of_scope: list[str] | None = None,
-    strict: bool = False
+    strict: bool = False,
+    recent_context: list[tuple[str, str]] | None = None,
 ) -> bool:
     """
     Quick check if a message warrants a response from the bot.
@@ -258,6 +267,8 @@ async def check_message_relevance(
             even if the request seems general (for permissive mode)
         strict: If True, ONLY respond to direct address or topics in scope.
             General requests outside the domain get "no". Use for specialist bots.
+        recent_context: Optional list of (author_name, content) tuples for
+            recent messages to provide conversation context.
 
     Returns:
         True if the message is relevant, False otherwise
@@ -275,6 +286,13 @@ async def check_message_relevance(
     except ImportError:
         return True  # Fail open if SDK not available
 
+    # Build context section from recent messages
+    if recent_context:
+        context_lines = [f"[{author}]: {msg}" for author, msg in recent_context]
+        context_section = "\nRecent conversation context:\n" + "\n".join(context_lines) + "\n"
+    else:
+        context_section = ""
+
     if strict:
         # Strict mode: only respond to direct address or explicit domain match
         if topics_of_interest:
@@ -286,7 +304,8 @@ async def check_message_relevance(
         prompt = RELEVANCE_PROMPT_STRICT.format(
             bot_name=bot_name,
             content=content,
-            scope_section=scope_section
+            scope_section=scope_section,
+            context_section=context_section,
         )
     else:
         # Permissive mode: respond to general requests too
@@ -307,7 +326,8 @@ async def check_message_relevance(
             bot_name=bot_name,
             content=content,
             topics_section=topics_section,
-            out_of_scope_section=out_of_scope_section
+            out_of_scope_section=out_of_scope_section,
+            context_section=context_section,
         )
 
     options = ClaudeAgentOptions(

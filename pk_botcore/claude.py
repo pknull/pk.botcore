@@ -20,6 +20,7 @@ class ClaudeResponse:
     duration_ms: int = 0
     is_error: bool = False
     cost_usd: float = 0.0
+    sources: list[str] | None = None  # File paths accessed via tools
 
 
 def _log_tool_use(block) -> None:
@@ -51,6 +52,25 @@ def _log_tool_use(block) -> None:
         logger.info("AUDIT [Task] agent=%s desc=%s", agent, desc)
     else:
         logger.info("AUDIT [%s] %s", name, str(inp)[:100])
+
+
+def _collect_source_path(block, sources: list[str]) -> None:
+    """Extract file paths from tool-use blocks for source citation."""
+    name = block.name
+    inp = block.input or {}
+
+    if name in ("Read", "Edit", "Write"):
+        path = inp.get("file_path")
+        if path:
+            sources.append(path)
+    elif name == "Grep":
+        path = inp.get("path")
+        if path:
+            sources.append(path)
+    elif name == "Glob":
+        path = inp.get("path")
+        if path:
+            sources.append(path)
 
 
 async def invoke_claude(
@@ -144,6 +164,7 @@ async def invoke_claude(
         cost_usd = 0.0
         is_error = False
         current_status = None
+        source_paths: list[str] = []
 
         async for message in query(prompt=full_prompt, options=options):
             if isinstance(message, AssistantMessage):
@@ -157,6 +178,7 @@ async def invoke_claude(
                             await status_callback(STATUS_THINKING)
                     elif isinstance(block, ToolUseBlock):
                         _log_tool_use(block)
+                        _collect_source_path(block, source_paths)
                         if status_callback and current_status != STATUS_TOOL:
                             current_status = STATUS_TOOL
                             await status_callback(STATUS_TOOL)
@@ -169,12 +191,21 @@ async def invoke_claude(
         duration_ms = int((time.time() - start_time) * 1000)
         final_text = "\n".join(result_text) if result_text else "No response"
 
+        # Deduplicate sources preserving order
+        seen = set()
+        unique_sources = []
+        for p in source_paths:
+            if p not in seen:
+                seen.add(p)
+                unique_sources.append(p)
+
         return ClaudeResponse(
             result=final_text,
             session_id=new_session_id or session_id,
             duration_ms=duration_ms,
             is_error=is_error,
-            cost_usd=cost_usd
+            cost_usd=cost_usd,
+            sources=unique_sources or None,
         )
 
     except CLINotFoundError:
@@ -332,6 +363,7 @@ async def check_message_relevance(
 
     options = ClaudeAgentOptions(
         model="haiku",
+        tools=[],
         allowed_tools=[],
         permission_mode="default",
     )
@@ -407,6 +439,7 @@ async def check_bot_continuation(
 
     options = ClaudeAgentOptions(
         model="haiku",
+        tools=[],
         allowed_tools=[],
         permission_mode="default",
     )

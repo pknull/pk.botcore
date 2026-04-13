@@ -32,6 +32,7 @@ class LLMResponse:
     duration_ms: int = 0
     is_error: bool = False
     cost_usd: float = 0.0
+    sources: list[str] | None = None  # File paths accessed via tools
 
     @classmethod
     def from_claude(cls, resp: ClaudeResponse) -> "LLMResponse":
@@ -41,6 +42,7 @@ class LLMResponse:
             duration_ms=resp.duration_ms,
             is_error=resp.is_error,
             cost_usd=resp.cost_usd,
+            sources=resp.sources,
         )
 
     @classmethod
@@ -163,6 +165,7 @@ async def check_relevance(
             bot_name=bot_name,
             topics_of_interest=topics_of_interest,
             out_of_scope=out_of_scope,
+            recent_context=recent_context,
         )
     else:
         return await check_relevance_claude(

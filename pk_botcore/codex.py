@@ -263,10 +263,14 @@ RELEVANCE_PROMPT = """You are a relevance filter for an AI assistant named {bot_
 Determine if this message warrants a response from {bot_name}.
 Respond ONLY with "yes" or "no".
 
+Recent context:
+{recent_context}
+
 Respond "yes" if the message:
 - Is directed at {bot_name} by name
 - Asks a question that {bot_name} could help with
 - Is a general request not addressed to anyone specific
+- Is a short follow-up, confirmation, correction, or continuation of the recent context
 {topics_section}
 Respond "no" if the message:
 - Is addressed to someone else by name (any name that is NOT {bot_name})
@@ -282,6 +286,7 @@ async def check_message_relevance_codex(
     bot_name: str = "Bot",
     topics_of_interest: list[str] | None = None,
     out_of_scope: list[str] | None = None,
+    recent_context: list[tuple[str, str]] | None = None,
 ) -> bool:
     """
     Quick check if a message warrants a response from the bot.
@@ -294,6 +299,7 @@ async def check_message_relevance_codex(
         bot_name: The bot's name for the prompt
         topics_of_interest: Optional list of topics the bot will engage with
         out_of_scope: Optional list of topics the bot should NOT respond to
+        recent_context: Optional list of (author_name, content) tuples for context
 
     Returns:
         True if the message is relevant, False otherwise
@@ -320,9 +326,16 @@ async def check_message_relevance_codex(
     else:
         out_of_scope_section = ""
 
+    if recent_context:
+        context_lines = [f"[{author}]: {msg}" for author, msg in recent_context]
+        recent_context_text = "\n".join(context_lines)
+    else:
+        recent_context_text = "(no recent context)"
+
     prompt = RELEVANCE_PROMPT.format(
         bot_name=bot_name,
         content=content,
+        recent_context=recent_context_text,
         topics_section=topics_section,
         out_of_scope_section=out_of_scope_section
     )

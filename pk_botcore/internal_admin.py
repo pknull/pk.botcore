@@ -967,7 +967,9 @@ class InternalAdminCog(commands.Cog):
         start_text = self._format_datetime(getattr(event, "start_time", None)) or "unknown start"
         status = getattr(getattr(event, "status", None), "name", None) or str(getattr(event, "status", "unknown"))
         entity_type = getattr(getattr(event, "entity_type", None), "name", None) or str(getattr(event, "entity_type", "unknown"))
-        return f"- {getattr(event, 'name', 'unnamed')} `{getattr(event, 'id', 'unknown')}` ({status}; {entity_type}; starts {start_text})"
+        recurrence = getattr(event, "recurrence_rule", None)
+        recurrence_tag = " (recurring)" if recurrence is not None else ""
+        return f"- {getattr(event, 'name', 'unnamed')} `{getattr(event, 'id', 'unknown')}` ({status}; {entity_type}; starts {start_text}){recurrence_tag}"
 
     def _format_automod_rule_line(self, rule) -> str:
         trigger = getattr(getattr(rule, "trigger", None), "type", None)
@@ -977,6 +979,16 @@ class InternalAdminCog(commands.Cog):
 
     def _is_voice_channel(self, channel) -> bool:
         return self._channel_kind(channel) in {"voice", "stage"} or hasattr(channel, "user_limit")
+
+    def _entity_type_for_voice_channel(self, channel) -> "discord.EntityType":
+        """Return the correct EntityType for a voice or stage channel.
+
+        Stage channels require ``EntityType.stage_instance``; all other
+        voice-capable channels use ``EntityType.voice``.
+        """
+        if "stage" in self._channel_kind(channel):
+            return discord.EntityType.stage_instance
+        return discord.EntityType.voice
 
     async def _resolve_voice_channel(self, guild, reference: str):
         channel, channel_error = self._resolve_channel(guild, reference)
@@ -3101,10 +3113,16 @@ class InternalAdminCog(commands.Cog):
         if not page_items:
             return CmdResult(success=False, error=f"Event list page `{page}` is out of range. There {'is' if total_pages == 1 else 'are'} {total_pages} page{'s' if total_pages != 1 else ''}.")
         lines = [self._format_event_line(event) for event in page_items]
-        return CmdResult(success=True, message="\n".join([
+        any_recurrence_exposed = any(getattr(e, "recurrence_rule", None) is not None for e in filtered_events)
+        footer_parts = []
+        if not any_recurrence_exposed:
+            footer_parts.append("[Unverified] Recurring events may appear as a single upcoming occurrence; discord.py does not expose recurrence metadata.")
+        footer = "\n".join(footer_parts)
+        return CmdResult(success=True, message="\n".join(filter(None, [
             f"Scheduled events in {getattr(guild, 'name', 'this server')}{f' matching `{filter_text}`' if filter_text else ''} (page {page}/{total_pages}; {len(filtered_events)} match{'es' if len(filtered_events) != 1 else ''}):",
             *lines,
-        ]))
+            footer,
+        ])))
 
     @llm_command("event_inspect", description="Inspect one scheduled event (authorized admin)", args="event")
     async def cmd_event_inspect(self, ctx, event_ref: str) -> CmdResult:
@@ -3120,6 +3138,11 @@ class InternalAdminCog(commands.Cog):
         location = getattr(event, "location", None) or getattr(channel, "name", None) or "none"
         status = getattr(getattr(event, "status", None), "name", None) or str(getattr(event, "status", "unknown"))
         entity_type = getattr(getattr(event, "entity_type", None), "name", None) or str(getattr(event, "entity_type", "unknown"))
+        recurrence_rule = getattr(event, "recurrence_rule", None)
+        if recurrence_rule is not None:
+            recurrence_text = str(recurrence_rule)
+        else:
+            recurrence_text = "not available [Unverified] (discord.py may not expose recurrence metadata; a recurring series may appear as a single upcoming event)"
         return CmdResult(
             success=True,
             message=(
@@ -3129,7 +3152,8 @@ class InternalAdminCog(commands.Cog):
                 f"- start: {start_text}\n"
                 f"- end: {end_text}\n"
                 f"- location: {location}\n"
-                f"- description: {getattr(event, 'description', None) or 'none'}"
+                f"- description: {getattr(event, 'description', None) or 'none'}\n"
+                f"- recurrence: {recurrence_text}"
             ),
         )
 
@@ -3215,7 +3239,7 @@ class InternalAdminCog(commands.Cog):
             return CmdResult(success=False, error=f"Scheduled event creation failed: {exc}")
         return CmdResult(success=True, message=f"Created external scheduled event `{event.name}` ({event.id}).")
 
-    @llm_command("event_create_voice", description="Create a voice scheduled event (authorized admin)", args="name:start_iso:channel:description?")
+    @llm_command("event_create_voice", description="Create a voice or stage channel scheduled event (authorized admin)", args="name:start_iso:channel:description?")
     async def cmd_event_create_voice(self, ctx, name: str, start_iso: str, channel_ref: str, *description_parts: str) -> CmdResult:
         guild, _bot_member, error = await self._ensure_admin_command(ctx, action="manage scheduled events", required_permissions=["manage_events"])
         if error:
@@ -3226,12 +3250,13 @@ class InternalAdminCog(commands.Cog):
         channel, channel_error = await self._resolve_voice_channel(guild, channel_ref)
         if channel_error:
             return CmdResult(success=False, error=channel_error)
+        entity_type = self._entity_type_for_voice_channel(channel)
         description = ":".join(description_parts).strip() or None
         audit_reason = self._build_audit_reason(ctx, "Create voice scheduled event", f"name={name.strip()}")
         kwargs = {
             "name": name.strip(),
             "start_time": start_time,
-            "entity_type": discord.EntityType.voice,
+            "entity_type": entity_type,
             "privacy_level": discord.PrivacyLevel.guild_only,
             "channel": channel,
             "reason": audit_reason,
@@ -3244,7 +3269,8 @@ class InternalAdminCog(commands.Cog):
             return CmdResult(success=False, error="Discord denied the scheduled event creation.")
         except discord.HTTPException as exc:
             return CmdResult(success=False, error=f"Scheduled event creation failed: {exc}")
-        return CmdResult(success=True, message=f"Created voice scheduled event `{event.name}` ({event.id}).")
+        kind_label = "stage" if entity_type == discord.EntityType.stage_instance else "voice"
+        return CmdResult(success=True, message=f"Created {kind_label} scheduled event `{event.name}` ({event.id}).")
 
     @llm_command("event_status", description="Update a scheduled event status (authorized admin)", args="event:status:reason?")
     async def cmd_event_status(self, ctx, event_ref: str, status_text: str, *reason_parts: str) -> CmdResult:
@@ -3319,6 +3345,7 @@ class InternalAdminCog(commands.Cog):
             if channel_error:
                 return CmdResult(success=False, error=channel_error)
             edit_kwargs["channel"] = channel
+            edit_kwargs["entity_type"] = self._entity_type_for_voice_channel(channel)
         if "image" in options:
             attachment, attachment_error = await self._select_emoji_source_attachment(ctx, options["image"])
             if attachment_error:

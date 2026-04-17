@@ -158,7 +158,6 @@ async def invoke_codex(
         is_error = False
         input_tokens = 0
         output_tokens = 0
-        current_status = None
         turn_completed = False
 
         # Use streaming to get events
@@ -181,9 +180,12 @@ async def invoke_codex(
                         item_type = getattr(item, 'type', None)
                         # Tool/command started
                         if item_type in ("command_execution", "file_change", "mcp_tool_call", "web_search"):
+                            # A new tool call means any prior agent_messages were
+                            # pre-tool narration; drop them. Whatever accumulates
+                            # after the last tool call is the real answer.
+                            result_text.clear()
                             _log_item(item)
-                            if status_callback and current_status != STATUS_TOOL:
-                                current_status = STATUS_TOOL
+                            if status_callback:
                                 await status_callback(STATUS_TOOL)
 
                 elif event_type == "item.completed":
@@ -192,13 +194,15 @@ async def invoke_codex(
                         item_type = getattr(item, 'type', None)
 
                         if item_type == "agent_message" and isinstance(item, AgentMessageItem):
-                            # Stream the text
-                            text = item.text
-                            result_text.append(text)
-                            if text_callback:
-                                await text_callback(text)
-                            if status_callback and current_status == STATUS_TOOL:
-                                current_status = STATUS_THINKING
+                            # Accumulate — multiple agent_messages after the last
+                            # tool call get joined so genuine multi-part answers
+                            # are preserved. Intermediate narration is dropped by
+                            # the result_text.clear() on the next tool start.
+                            result_text.append(item.text)
+                            # Do NOT fire text_callback here. Hold display for
+                            # the cog-level placeholder rotation instead; the
+                            # final answer is delivered by _complete_llm_turn.
+                            if status_callback:
                                 await status_callback(STATUS_THINKING)
 
                 elif event_type == "turn.completed":

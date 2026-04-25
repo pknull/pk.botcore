@@ -1,12 +1,14 @@
 """pk.botcore - Shared infrastructure for PK Discord bots.
 
 This package provides common utilities for pk.zalgo and pk.asha:
+- Bot bootstrap (create_bot, run_bot, load_extensions)
 - Session management (UserSession, load/save)
 - Channel configuration (listen modes)
 - LLM invocation (Claude, Codex, unified interface)
 - Message chunking for Discord
 - HTTP utilities
 - Dynamic command registry for LLM [CMD:*] directives
+- Assistant runtime mixin for LLM-driven cogs
 """
 
 from .sessions import UserSession, load_sessions, save_sessions
@@ -32,7 +34,6 @@ from .llm import (
 from .chunking import chunk_message
 from .http import get_http_session, close_http_session, fetch_json, get_image_data
 from .embeds import make_embed
-from .games import GamesCog
 from .bot_app import (
     setup_logging,
     get_token,
@@ -53,7 +54,6 @@ from .cmd_executor import (
     process_response_async,
 )
 from .interactions import InteractionLogger
-from .internal_admin import InternalAdminCog, get_actor_admin_capabilities
 from .assistant_runtime import AssistantRuntimeMixin, ConversationTracker, ActiveTaskState
 
 __version__ = "0.1.0"
@@ -87,8 +87,6 @@ __all__ = [
     "get_image_data",
     # Embeds
     "make_embed",
-    # Games
-    "GamesCog",
     # Bot app
     "setup_logging",
     "get_token",
@@ -112,7 +110,4 @@ __all__ = [
     "AssistantRuntimeMixin",
     "ConversationTracker",
     "ActiveTaskState",
-    # Internal admin
-    "InternalAdminCog",
-    "get_actor_admin_capabilities",
 ]

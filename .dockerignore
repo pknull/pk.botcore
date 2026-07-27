@@ -1,0 +1,6 @@
+**
+!pyproject.toml
+!pk_botcore/
+!pk_botcore/**
+**/__pycache__/
+**/*.py[cod]

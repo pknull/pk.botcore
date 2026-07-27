@@ -11,9 +11,15 @@ Costs tokens (Haiku) per run. Each case is one LLM call.
 """
 
 import asyncio
+import os
 import pytest
 
 from pk_botcore.claude import check_message_relevance
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("RUN_LIVE_LLM_TESTS") != "1",
+    reason="live LLM evaluation; set RUN_LIVE_LLM_TESTS=1 to enable",
+)
 
 # ---------------------------------------------------------------------------
 # Zalgo configuration (from pk.zalgo/cogs/zalgo.py:809-824)
@@ -120,7 +126,7 @@ ASHA_CASES = [
 
 def _run(coro):
     """Run async function synchronously for pytest."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 class TestZalgoRelevance:

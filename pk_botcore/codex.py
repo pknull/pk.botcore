@@ -4,10 +4,13 @@ Parallel implementation to claude.py, using openai-codex-sdk instead.
 Uses existing Codex OAuth credentials from ~/.codex/auth.json.
 """
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
+
+from .limits import llm_slot
 
 logger = logging.getLogger('pk_botcore.codex')
 
@@ -160,13 +163,18 @@ async def invoke_codex(
         output_tokens = 0
         turn_completed = False
 
-        # Use streaming to get events
-        # Note: SDK may raise CodexExecError at the end even if we got a valid response
-        # due to stderr output like "Reading prompt from stdin..."
-        streamed = await thread.run_streamed(full_prompt)
+        # Apply the deadline to stream creation and consumption. Cancellation is
+        # deliberately not caught, allowing callers with shorter outer deadlines
+        # to retain control.
+        async def timed_events():
+            async with asyncio.timeout(timeout):
+                async with llm_slot():
+                    streamed = await thread.run_streamed(full_prompt)
+                    async for event in streamed.events:
+                        yield event
 
         try:
-            async for event in streamed.events:
+            async for event in timed_events():
                 event_type = getattr(event, 'type', None)
 
                 if event_type == "thread.started":
@@ -253,6 +261,14 @@ async def invoke_codex(
             output_tokens=output_tokens,
         )
 
+    except TimeoutError:
+        logger.error("Codex invocation timed out after %s seconds", timeout)
+        return CodexResponse(
+            result=f"Request timed out after {timeout} seconds",
+            thread_id=thread_id,
+            is_error=True,
+            duration_ms=int((time.time() - start_time) * 1000),
+        )
     except Exception as e:
         logger.exception("Unexpected error invoking Codex")
         return CodexResponse(
@@ -291,6 +307,7 @@ async def check_message_relevance_codex(
     topics_of_interest: list[str] | None = None,
     out_of_scope: list[str] | None = None,
     recent_context: list[tuple[str, str]] | None = None,
+    timeout: int = 15,
 ) -> bool:
     """
     Quick check if a message warrants a response from the bot.
@@ -358,10 +375,15 @@ async def check_message_relevance_codex(
         # Use streaming (non-streaming run() has issues with stdin handling)
         result_text = []
         turn_completed = False
-        streamed = await thread.run_streamed(prompt)
+        async def timed_events():
+            async with asyncio.timeout(timeout):
+                async with llm_slot():
+                    streamed = await thread.run_streamed(prompt)
+                    async for event in streamed.events:
+                        yield event
 
         try:
-            async for event in streamed.events:
+            async for event in timed_events():
                 event_type = getattr(event, 'type', None)
 
                 if event_type == "item.completed":

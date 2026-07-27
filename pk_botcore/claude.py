@@ -1,9 +1,12 @@
 """Claude Agent SDK invocation utilities."""
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
+
+from .limits import llm_slot
 
 logger = logging.getLogger('pk_botcore.claude')
 
@@ -166,27 +169,33 @@ async def invoke_claude(
         current_status = None
         source_paths: list[str] = []
 
-        async for message in query(prompt=full_prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        result_text.append(block.text)
-                        if text_callback:
-                            await text_callback(block.text)
-                        if status_callback and current_status == STATUS_TOOL:
-                            current_status = STATUS_THINKING
-                            await status_callback(STATUS_THINKING)
-                    elif isinstance(block, ToolUseBlock):
-                        _log_tool_use(block)
-                        _collect_source_path(block, source_paths)
-                        if status_callback and current_status != STATUS_TOOL:
-                            current_status = STATUS_TOOL
-                            await status_callback(STATUS_TOOL)
+        async def consume_stream() -> None:
+            nonlocal new_session_id, cost_usd, is_error, current_status
+            async for message in query(prompt=full_prompt, options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            result_text.append(block.text)
+                            if text_callback:
+                                await text_callback(block.text)
+                            if status_callback and current_status == STATUS_TOOL:
+                                current_status = STATUS_THINKING
+                                await status_callback(STATUS_THINKING)
+                        elif isinstance(block, ToolUseBlock):
+                            _log_tool_use(block)
+                            _collect_source_path(block, source_paths)
+                            if status_callback and current_status != STATUS_TOOL:
+                                current_status = STATUS_TOOL
+                                await status_callback(STATUS_TOOL)
 
-            elif isinstance(message, ResultMessage):
-                new_session_id = message.session_id
-                cost_usd = message.total_cost_usd or 0.0
-                is_error = message.is_error
+                elif isinstance(message, ResultMessage):
+                    new_session_id = message.session_id
+                    cost_usd = message.total_cost_usd or 0.0
+                    is_error = message.is_error
+
+        async with asyncio.timeout(timeout):
+            async with llm_slot():
+                await consume_stream()
 
         duration_ms = int((time.time() - start_time) * 1000)
         final_text = "\n".join(result_text) if result_text else "No response"
@@ -208,6 +217,14 @@ async def invoke_claude(
             sources=unique_sources or None,
         )
 
+    except TimeoutError:
+        logger.error("Claude invocation timed out after %s seconds", timeout)
+        return ClaudeResponse(
+            result=f"Request timed out after {timeout} seconds",
+            session_id=session_id,
+            is_error=True,
+            duration_ms=int((time.time() - start_time) * 1000),
+        )
     except CLINotFoundError:
         return ClaudeResponse(
             result="Claude CLI not found. Install with: pip install claude-agent-sdk",
@@ -282,6 +299,7 @@ async def check_message_relevance(
     out_of_scope: list[str] | None = None,
     strict: bool = False,
     recent_context: list[tuple[str, str]] | None = None,
+    timeout: int = 15,
 ) -> bool:
     """
     Quick check if a message warrants a response from the bot.
@@ -369,14 +387,20 @@ async def check_message_relevance(
     )
 
     try:
-        result_text = ""
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        result_text += block.text
+        result_parts: list[str] = []
 
-        is_relevant = result_text.strip().lower().startswith("yes")
+        async def consume_stream() -> None:
+            async for message in query(prompt=prompt, options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            result_parts.append(block.text)
+
+        async with asyncio.timeout(timeout):
+            async with llm_slot():
+                await consume_stream()
+
+        is_relevant = "".join(result_parts).strip().lower().startswith("yes")
         logger.debug("Relevance check: %s -> %s", content[:50], is_relevant)
         return is_relevant
 
@@ -411,6 +435,7 @@ async def check_bot_continuation(
     other_bot: str,
     message: str,
     recent_context: list[tuple[str, str]],
+    timeout: int = 15,
 ) -> bool:
     """
     Check if bot should continue a bot-to-bot conversation.
@@ -445,14 +470,20 @@ async def check_bot_continuation(
     )
 
     try:
-        result_text = ""
-        async for msg in query(prompt=prompt, options=options):
-            if isinstance(msg, AssistantMessage):
-                for block in msg.content:
-                    if isinstance(block, TextBlock):
-                        result_text += block.text
+        result_parts: list[str] = []
 
-        should_continue = result_text.strip().lower().startswith("yes")
+        async def consume_stream() -> None:
+            async for msg in query(prompt=prompt, options=options):
+                if isinstance(msg, AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, TextBlock):
+                            result_parts.append(block.text)
+
+        async with asyncio.timeout(timeout):
+            async with llm_slot():
+                await consume_stream()
+
+        should_continue = "".join(result_parts).strip().lower().startswith("yes")
         logger.debug("Bot continuation check: %s -> %s", message[:50], should_continue)
         return should_continue
 

@@ -2,8 +2,9 @@
 
 import json
 import logging
-import os
 from dataclasses import dataclass
+
+from .storage import atomic_json_dump
 
 logger = logging.getLogger('pk_botcore.channels')
 
@@ -69,8 +70,6 @@ def save_channel_config(configs: dict[int, ChannelConfig], config_file: str) -> 
         configs: Dictionary mapping channel_id to ChannelConfig
         config_file: Path to the channel config JSON file
     """
-    os.makedirs(os.path.dirname(config_file), exist_ok=True)
-
     data = {}
     for channel_id, config in configs.items():
         data[str(channel_id)] = {
@@ -80,7 +79,6 @@ def save_channel_config(configs: dict[int, ChannelConfig], config_file: str) -> 
             "set_at": config.set_at
         }
 
-    with open(config_file, 'w') as fp:
-        json.dump(data, fp, indent=2)
+    atomic_json_dump(data, config_file, indent=2)
 
     logger.debug("Saved %d channel configs to %s", len(configs), config_file)

@@ -1,13 +1,18 @@
 """Session management for Discord bot users."""
 
-import json
 import logging
-import os
+import json
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+
+from .storage import atomic_json_dump
 
 logger = logging.getLogger('pk_botcore.sessions')
+
+
+def _now_iso() -> str:
+    """Return the existing naive UTC timestamp format without deprecated APIs."""
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 @dataclass
@@ -15,8 +20,8 @@ class UserSession:
     """User session state."""
     user_id: int
     session_id: str
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    last_used: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=_now_iso)
+    last_used: str = field(default_factory=_now_iso)
     message_count: int = 0
 
 
@@ -35,11 +40,12 @@ def load_sessions(sessions_file: str) -> dict[int, UserSession]:
 
         sessions = {}
         for user_id_str, session_data in data.items():
+            fallback_timestamp = _now_iso()
             sessions[int(user_id_str)] = UserSession(
                 user_id=int(user_id_str),
                 session_id=session_data["session_id"],
-                created_at=session_data.get("created_at", datetime.utcnow().isoformat()),
-                last_used=session_data.get("last_used", datetime.utcnow().isoformat()),
+                created_at=session_data.get("created_at", fallback_timestamp),
+                last_used=session_data.get("last_used", fallback_timestamp),
                 message_count=session_data.get("message_count", 0)
             )
 
@@ -61,8 +67,6 @@ def save_sessions(sessions: dict[int, UserSession], sessions_file: str) -> None:
         sessions: Dictionary mapping user_id to UserSession
         sessions_file: Path to the sessions JSON file
     """
-    os.makedirs(os.path.dirname(sessions_file), exist_ok=True)
-
     data = {}
     for user_id, session in sessions.items():
         data[str(user_id)] = {
@@ -72,7 +76,6 @@ def save_sessions(sessions: dict[int, UserSession], sessions_file: str) -> None:
             "message_count": session.message_count
         }
 
-    with open(sessions_file, 'w') as fp:
-        json.dump(data, fp, indent=2)
+    atomic_json_dump(data, sessions_file, indent=2)
 
     logger.debug("Saved %d sessions to %s", len(sessions), sessions_file)

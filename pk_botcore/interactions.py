@@ -5,9 +5,11 @@ Logs all bot interactions to JSON-lines files for audit and analysis.
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,14 @@ class InteractionEvent:
 class InteractionLogger:
     """Logs bot interactions to JSON-lines file."""
 
-    def __init__(self, bot_name: str, log_path: str | Path | None = None):
+    def __init__(
+        self,
+        bot_name: str,
+        log_path: str | Path | None = None,
+        *,
+        max_bytes: int | None = None,
+        backup_count: int = 3,
+    ):
         """
         Initialize interaction logger.
 
@@ -45,19 +54,78 @@ class InteractionLogger:
 
         if log_path is None:
             log_dir = Path.home() / f".pk.{self.bot_name}"
-            log_dir.mkdir(parents=True, exist_ok=True)
+            self._manage_parent_mode = True
+            log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             self.log_path = log_dir / "interactions.jsonl"
         else:
             self.log_path = Path(log_path)
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._manage_parent_mode = not self.log_path.parent.exists()
+            self.log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        try:
+            configured_max = int(
+                os.getenv("PK_BOTCORE_INTERACTION_LOG_MAX_BYTES", str(5 * 1024 * 1024))
+            )
+        except ValueError:
+            configured_max = 5 * 1024 * 1024
+        self.max_bytes = max(1, max_bytes if max_bytes is not None else configured_max)
+        self.backup_count = max(0, backup_count)
+        self._write_lock = threading.Lock()
+        self._ensure_private_path()
 
         logger.info("Interaction logger initialized: %s", self.log_path)
+
+    def _ensure_private_path(self) -> None:
+        if self._manage_parent_mode:
+            os.chmod(self.log_path.parent, 0o700)
+        fd = os.open(self.log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        os.close(fd)
+        os.chmod(self.log_path, 0o600)
+
+    def _rotate_if_needed(self, incoming_bytes: int) -> None:
+        try:
+            current_size = self.log_path.stat().st_size
+        except FileNotFoundError:
+            current_size = 0
+        if current_size + incoming_bytes <= self.max_bytes:
+            return
+
+        if self.backup_count == 0:
+            fd = os.open(self.log_path, os.O_WRONLY | os.O_TRUNC | os.O_CREAT, 0o600)
+            os.close(fd)
+            return
+
+        oldest = self.log_path.with_name(f"{self.log_path.name}.{self.backup_count}")
+        try:
+            oldest.unlink()
+        except FileNotFoundError:
+            pass
+        for index in range(self.backup_count - 1, 0, -1):
+            source = self.log_path.with_name(f"{self.log_path.name}.{index}")
+            target = self.log_path.with_name(f"{self.log_path.name}.{index + 1}")
+            if source.exists():
+                os.replace(source, target)
+        if self.log_path.exists():
+            os.replace(
+                self.log_path,
+                self.log_path.with_name(f"{self.log_path.name}.1"),
+            )
+        self._ensure_private_path()
 
     def _write_event(self, event: InteractionEvent) -> None:
         """Write event to log file."""
         try:
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(asdict(event), ensure_ascii=False) + "\n")
+            encoded = (json.dumps(asdict(event), ensure_ascii=False) + "\n").encode("utf-8")
+            with self._write_lock:
+                self._rotate_if_needed(len(encoded))
+                fd = os.open(
+                    self.log_path,
+                    os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+                    0o600,
+                )
+                with os.fdopen(fd, "ab") as stream:
+                    stream.write(encoded)
+                os.chmod(self.log_path, 0o600)
         except Exception as e:
             logger.error("Failed to write interaction event: %s", e)
 

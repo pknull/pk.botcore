@@ -4,6 +4,7 @@ Provides common setup for logging, extension loading, event handling,
 command syncing, and bot startup used by all PK bots.
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -51,13 +52,16 @@ def get_token():
     return token
 
 
-def create_bot(*, intents, description):
+def create_bot(*, intents, description, allowed_mentions=None):
     """Create a commands.Bot with standard PK settings."""
+    if allowed_mentions is None:
+        allowed_mentions = discord.AllowedMentions.none()
     return commands.Bot(
         intents=intents,
         command_prefix='!',
         description=description,
         help_command=None,
+        allowed_mentions=allowed_mentions,
     )
 
 
@@ -77,24 +81,51 @@ async def load_extensions(bot, cogs):
 
 
 async def sync_commands(bot):
-    """Copy global commands to guilds and clear global duplicates."""
+    """Copy global commands to guilds and clear remote global duplicates once.
+
+    The registered global command objects are restored to the local tree after
+    the empty global sync. This makes reconnect-driven ``on_ready`` calls
+    idempotent without destroying the definitions needed by later guild syncs.
+    """
     root = logging.getLogger()
-    try:
-        for guild in bot.guilds:
-            bot.tree.copy_global_to(guild=guild)
+    lock = getattr(bot, "_pk_botcore_sync_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(bot, "_pk_botcore_sync_lock", lock)
 
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()
-        root.warning('Cleared global commands')
+    async with lock:
+        if getattr(bot, "_pk_botcore_commands_synced", False):
+            root.debug("Slash commands already synchronized; skipping reconnect sync")
+            return
 
-        for guild in bot.guilds:
+        global_commands = list(bot.tree.get_commands(guild=None))
+        try:
+            for guild in bot.guilds:
+                bot.tree.copy_global_to(guild=guild)
+
+            bot.tree.clear_commands(guild=None)
             try:
-                guild_synced = await bot.tree.sync(guild=guild)
-                root.warning('Synced %d commands to guild: %s', len(guild_synced), guild.name)
-            except Exception as e:
-                root.warning('Failed to sync to guild %s: %s', guild.name, e)
-    except Exception as e:
-        root.error('Failed to sync slash commands: %s', e)
+                await bot.tree.sync()
+                root.warning('Cleared global commands')
+            finally:
+                for command in global_commands:
+                    bot.tree.add_command(command, override=True)
+
+            all_guilds_synced = True
+            for guild in bot.guilds:
+                try:
+                    guild_synced = await bot.tree.sync(guild=guild)
+                    root.warning('Synced %d commands to guild: %s', len(guild_synced), guild.name)
+                except Exception as e:
+                    all_guilds_synced = False
+                    root.warning('Failed to sync to guild %s: %s', guild.name, e)
+
+            if all_guilds_synced:
+                setattr(bot, "_pk_botcore_commands_synced", True)
+            else:
+                root.warning("Slash command sync incomplete; reconnect will retry")
+        except Exception as e:
+            root.error('Failed to sync slash commands: %s', e)
 
 
 def register_common_events(bot):

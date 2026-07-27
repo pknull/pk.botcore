@@ -73,7 +73,20 @@ class AssistantRuntimeMixin:
     ACTIVE_TASK_MESSAGE_LIMIT = 6
     RESTART_DELAY_SECONDS = 2.0
 
-    def _init_assistant_runtime(self, *, engagement_window: int = 300) -> None:
+    def _init_assistant_runtime(
+        self,
+        *,
+        engagement_window: int = 300,
+        queue_maxsize: int | None = None,
+    ) -> None:
+        if queue_maxsize is None:
+            try:
+                queue_maxsize = int(
+                    os.getenv("PK_BOTCORE_CHANNEL_QUEUE_MAXSIZE", "25")
+                )
+            except ValueError:
+                queue_maxsize = 25
+        self._queue_maxsize = max(1, queue_maxsize)
         self._owner_id: int | None = None
         self._message_queues: dict[int, asyncio.Queue] = {}
         self._queue_workers: dict[int, asyncio.Task] = {}
@@ -83,15 +96,24 @@ class AssistantRuntimeMixin:
     def _runtime_logger(self) -> logging.Logger:
         return getattr(self, "_assistant_logger", logging.getLogger(type(self).__module__))
 
-    async def _queue_message(self, channel_id: int, work_item: tuple) -> None:
-        """Add a message to the channel's processing queue."""
+    async def _queue_message(self, channel_id: int, work_item: tuple) -> bool:
+        """Admit a message without creating unbounded blocked producers."""
         if channel_id not in self._message_queues:
-            self._message_queues[channel_id] = asyncio.Queue()
+            self._message_queues[channel_id] = asyncio.Queue(
+                maxsize=self._queue_maxsize
+            )
 
-        await self._message_queues[channel_id].put(work_item)
+        try:
+            self._message_queues[channel_id].put_nowait(work_item)
+        except asyncio.QueueFull:
+            self._runtime_logger().warning(
+                "Channel queue %s is full; rejecting work item", channel_id
+            )
+            return False
 
         if channel_id not in self._queue_workers or self._queue_workers[channel_id].done():
             self._queue_workers[channel_id] = asyncio.create_task(self._process_queue(channel_id))
+        return True
 
     async def _process_queue(self, channel_id: int) -> None:
         """Process queued messages one at a time."""
@@ -99,14 +121,26 @@ class AssistantRuntimeMixin:
         if not queue:
             return
 
-        while not queue.empty():
-            try:
-                work_item = await queue.get()
-                await self._process_queue_item(*work_item)
-            except Exception as exc:
-                self._runtime_logger().exception("Error processing queued message: %s", exc)
-            finally:
-                queue.task_done()
+        current_task = asyncio.current_task()
+        try:
+            while True:
+                try:
+                    work_item = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                try:
+                    await self._process_queue_item(*work_item)
+                except Exception as exc:
+                    self._runtime_logger().exception("Error processing queued message: %s", exc)
+                finally:
+                    queue.task_done()
+        finally:
+            if (
+                self._queue_workers.get(channel_id) is current_task
+                and queue.empty()
+            ):
+                self._queue_workers.pop(channel_id, None)
+                self._message_queues.pop(channel_id, None)
 
     async def _process_queue_item(self, *args):
         raise NotImplementedError

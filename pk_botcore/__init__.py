@@ -48,13 +48,16 @@ from .cmd_executor import (
     CommandRegistry,
     llm_command,
     CmdResult,
+    CommandDirective,
     CMD_PATTERN,
     extract_commands,
+    extract_command_directives,
     clean_response,
     process_response_async,
 )
 from .interactions import InteractionLogger
 from .assistant_runtime import AssistantRuntimeMixin, ConversationTracker, ActiveTaskState
+from .storage import atomic_json_dump
 
 __version__ = "0.1.0"
 
@@ -100,8 +103,10 @@ __all__ = [
     "CommandRegistry",
     "llm_command",
     "CmdResult",
+    "CommandDirective",
     "CMD_PATTERN",
     "extract_commands",
+    "extract_command_directives",
     "clean_response",
     "process_response_async",
     # Interactions
@@ -110,4 +115,6 @@ __all__ = [
     "AssistantRuntimeMixin",
     "ConversationTracker",
     "ActiveTaskState",
+    # Storage
+    "atomic_json_dump",
 ]

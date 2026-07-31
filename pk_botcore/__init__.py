@@ -81,7 +81,6 @@ from .memory import (
 from .peers import (
     linkify_peer_mentions,
     parse_peer_bots,
-    peer_allowed_mentions,
 )
 
 __version__ = "0.1.0"
@@ -159,7 +158,6 @@ __all__ = [
     # Peer bots
     "linkify_peer_mentions",
     "parse_peer_bots",
-    "peer_allowed_mentions",
     # Storage
     "atomic_json_dump",
 ]

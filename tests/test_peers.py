@@ -3,7 +3,6 @@ import logging
 from pk_botcore.peers import (
     linkify_peer_mentions,
     parse_peer_bots,
-    peer_allowed_mentions,
 )
 
 
@@ -26,24 +25,6 @@ def test_parse_peer_bots_empty_values_are_inert():
     assert parse_peer_bots(None) == {}
     assert parse_peer_bots("") == {}
     assert parse_peer_bots("  ") == {}
-
-
-def test_peer_allowed_mentions_empty_matches_none_policy():
-    allowed = peer_allowed_mentions([])
-
-    assert allowed.everyone is False
-    assert allowed.roles is False
-    assert allowed.replied_user is False
-    assert allowed.users is False or allowed.users == []
-
-
-def test_peer_allowed_mentions_contains_only_peer_ids():
-    allowed = peer_allowed_mentions([123, 456])
-
-    assert allowed.everyone is False
-    assert allowed.roles is False
-    assert allowed.replied_user is False
-    assert [user.id for user in allowed.users] == [123, 456]
 
 
 def test_linkify_peer_mentions_is_explicit_case_insensitive_and_bounded():

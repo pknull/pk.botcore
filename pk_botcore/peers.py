@@ -2,9 +2,6 @@
 
 import logging
 import re
-from collections.abc import Iterable
-
-import discord
 
 
 logger = logging.getLogger(__name__)
@@ -29,19 +26,6 @@ def parse_peer_bots(raw: str | None) -> dict[str, int]:
         except (TypeError, ValueError):
             logger.warning("Skipping malformed PEER_BOTS entry: %r", entry)
     return peers
-
-
-def peer_allowed_mentions(peer_ids: Iterable[int]) -> discord.AllowedMentions:
-    """Allow user mentions only for the configured peer bot IDs."""
-    users = [discord.Object(id=peer_id) for peer_id in peer_ids]
-    if not users:
-        return discord.AllowedMentions.none()
-    return discord.AllowedMentions(
-        everyone=False,
-        roles=False,
-        replied_user=False,
-        users=users,
-    )
 
 
 def linkify_peer_mentions(text: str, peer_map: dict[str, int]) -> str:

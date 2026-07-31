@@ -53,9 +53,20 @@ def get_token():
 
 
 def create_bot(*, intents, description, allowed_mentions=None):
-    """Create a commands.Bot with standard PK settings."""
+    """Create a commands.Bot with standard PK settings.
+
+    Default mention posture: individual user pings allowed (bounded,
+    attributable, throttled by entry rate limits); @everyone, role pings,
+    and reply-pings stay suppressed — the catastrophic single-message
+    blast radius remains impossible regardless of LLM output.
+    """
     if allowed_mentions is None:
-        allowed_mentions = discord.AllowedMentions.none()
+        allowed_mentions = discord.AllowedMentions(
+            everyone=False,
+            roles=False,
+            users=True,
+            replied_user=False,
+        )
     return commands.Bot(
         intents=intents,
         command_prefix='!',

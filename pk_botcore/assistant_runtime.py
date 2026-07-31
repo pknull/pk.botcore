@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from dataclasses import dataclass, field
 import logging
 import os
@@ -13,6 +14,7 @@ import time
 import discord
 
 from .engagement import EngagementGateMixin, EngagementPolicy
+from .memory import ChannelMemoryStore, build_memory_window, format_memory_block
 
 ACTIVE_TASK_CONTINUATION_RE = re.compile(
     r"^(?:"
@@ -83,6 +85,7 @@ class AssistantRuntimeMixin(EngagementGateMixin):
         engagement_window: int = 300,
         queue_maxsize: int | None = None,
         policy: EngagementPolicy | None = None,
+        memory_path: str | None = None,
     ) -> None:
         if policy is not None:
             engagement_window = policy.engagement_window
@@ -100,6 +103,14 @@ class AssistantRuntimeMixin(EngagementGateMixin):
         self._queue_workers: dict[int, asyncio.Task] = {}
         self._conversation_tracker = ConversationTracker(engagement_window=engagement_window)
         self._active_task_state: dict[int, ActiveTaskState] = {}
+        self._channel_memory = (
+            ChannelMemoryStore(memory_path) if memory_path is not None else None
+        )
+        self._memory_tasks: set[asyncio.Task] = set()
+        self._memory_turn_generation = contextvars.ContextVar(
+            f"channel_memory_turn_{id(self)}",
+            default=None,
+        )
 
     def _runtime_logger(self) -> logging.Logger:
         return getattr(self, "_assistant_logger", logging.getLogger(type(self).__module__))
@@ -176,6 +187,99 @@ class AssistantRuntimeMixin(EngagementGateMixin):
         """Clear ephemeral conversation state for a context."""
         self._active_task_state.pop(context_id, None)
         self._conversation_tracker.clear(context_id)
+
+    async def _build_channel_memory_block(
+        self,
+        message: discord.Message | discord.Interaction,
+    ) -> str:
+        """Build guild-only summary and history context for a prompt."""
+        if self._channel_memory is None or getattr(message, "guild", None) is None:
+            return ""
+        channel = getattr(message, "channel", None)
+        channel_id = getattr(channel, "id", None)
+        if channel_id is None:
+            return ""
+        summary = self._channel_memory.get(channel_id)
+        window = await build_memory_window(message)
+        return format_memory_block(summary, window)
+
+    def _start_channel_memory_turn(self, context_id: int) -> None:
+        """Capture clear invalidation state before a guild turn generates."""
+        store = self._channel_memory
+        generation_getter = getattr(store, "generation", None)
+        generation = (
+            generation_getter(context_id)
+            if callable(generation_getter)
+            else None
+        )
+        self._memory_turn_generation.set((context_id, generation))
+
+    async def _run_memory_update(
+        self,
+        context_id: int,
+        *,
+        speaker_name: str,
+        prompt: str,
+        reply: str,
+        generation: object | None = None,
+    ) -> None:
+        store = self._channel_memory
+        if store is None:
+            return
+        generation_getter = getattr(store, "generation", None)
+        if (
+            generation is not None
+            and callable(generation_getter)
+            and generation != generation_getter(context_id)
+        ):
+            return
+        try:
+            await store.update(
+                context_id,
+                speaker_name=speaker_name,
+                prompt=prompt,
+                reply=reply,
+            )
+        except Exception:
+            self._runtime_logger().exception(
+                "Channel memory update failed for %s",
+                context_id,
+            )
+
+    def _schedule_memory_update(
+        self,
+        context_id: int | None,
+        *,
+        speaker_name: str,
+        prompt: str,
+        reply: str,
+    ) -> None:
+        """Keep one guild summary update alive without blocking its response."""
+        if (
+            self._channel_memory is None
+            or context_id is None
+            or not reply.strip()
+        ):
+            return
+        generation_getter = getattr(self._channel_memory, "generation", None)
+        memory_turn = self._memory_turn_generation.get()
+        if memory_turn is not None and memory_turn[0] == context_id:
+            generation = memory_turn[1]
+        else:
+            generation = (
+                generation_getter(context_id)
+                if callable(generation_getter)
+                else None
+            )
+        task = asyncio.create_task(self._run_memory_update(
+            context_id,
+            speaker_name=speaker_name,
+            prompt=prompt,
+            reply=reply,
+            generation=generation,
+        ))
+        self._memory_tasks.add(task)
+        task.add_done_callback(self._memory_tasks.discard)
 
     def _prune_stale_active_tasks(self) -> None:
         cutoff = time.time() - self.ACTIVE_TASK_WINDOW_SECONDS

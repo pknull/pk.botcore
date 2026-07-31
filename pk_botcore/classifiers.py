@@ -60,8 +60,8 @@ Respond "no" ONLY if:
 Respond ONLY with "yes" or "no"."""
 
 
-async def _haiku_yes_no(prompt: str, timeout: int) -> bool:
-    """Run a yes/no classification on Haiku. Raises on any failure."""
+async def _haiku_text(prompt: str, timeout: int) -> str:
+    """Run a text-only Haiku request. Raises on any failure."""
     from claude_agent_sdk import (
         query,
         ClaudeAgentOptions,
@@ -88,7 +88,38 @@ async def _haiku_yes_no(prompt: str, timeout: int) -> bool:
         async with llm_slot():
             await consume_stream()
 
-    return "".join(result_parts).strip().lower().startswith("yes")
+    return "".join(result_parts)
+
+
+async def _haiku_yes_no(prompt: str, timeout: int) -> bool:
+    """Run a yes/no classification on Haiku. Raises on any failure."""
+    result = await _haiku_text(prompt, timeout)
+    return result.strip().lower().startswith("yes")
+
+
+async def summarize_exchange(
+    prior_summary: str,
+    speaker_name: str,
+    prompt: str,
+    reply: str,
+    timeout: int = 20,
+) -> str:
+    """Fold one attributed exchange into a bounded rolling summary."""
+    request = f"""Fold this exchange into the running channel summary.
+Keep attribution by speaker name. Keep the result at or below 1000 characters.
+Drop the least-relevant older material first when space is needed.
+Return only the updated summary.
+
+Running summary:
+{prior_summary or "(empty)"}
+
+Speaker: {speaker_name}
+Speaker message:
+{prompt}
+
+Assistant response:
+{reply}"""
+    return await _haiku_text(request, timeout)
 
 
 def _format_context_section(

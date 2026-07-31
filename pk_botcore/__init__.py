@@ -33,6 +33,7 @@ from .llm import (
 from .classifiers import (
     check_relevance,
     check_bot_continuation,
+    summarize_exchange,
 )
 from .chunking import chunk_message
 from .http import get_http_session, close_http_session, fetch_json, get_image_data
@@ -70,6 +71,13 @@ from .engagement import (
     is_stop_phrase,
 )
 from .storage import atomic_json_dump
+from .memory import (
+    ChannelMemoryStore,
+    SUMMARY_MAX_CHARS,
+    SUMMARY_TTL_SECONDS,
+    build_memory_window,
+    format_memory_block,
+)
 
 __version__ = "0.1.0"
 
@@ -92,6 +100,7 @@ __all__ = [
     "invoke_llm",
     "check_relevance",
     "check_bot_continuation",
+    "summarize_exchange",
     "STATUS_THINKING",
     "STATUS_TOOL",
     # Chunking
@@ -136,6 +145,12 @@ __all__ = [
     "another_bot_mentioned",
     "is_addressed_by_name",
     "is_stop_phrase",
+    # Channel memory
+    "ChannelMemoryStore",
+    "SUMMARY_MAX_CHARS",
+    "SUMMARY_TTL_SECONDS",
+    "build_memory_window",
+    "format_memory_block",
     # Storage
     "atomic_json_dump",
 ]

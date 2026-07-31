@@ -206,8 +206,31 @@ class EngagementGateMixin:
             except Exception:
                 logger.exception("Error cleaning up discarded work item")
 
+        # Items enqueued while we were awaiting the cancelled worker (e.g. a
+        # muted-@mention breakthrough) would otherwise strand with no worker.
+        surviving = self._message_queues.get(context_id)
+        if surviving is not None and not surviving.empty():
+            current = self._queue_workers.get(context_id)
+            if current is None or current.done():
+                self._queue_workers[context_id] = asyncio.create_task(
+                    self._process_queue(context_id)
+                )
+
     async def _on_work_item_discarded(self, work_item: tuple) -> None:
         """Hook for bots to clean up abandoned queue items (attachments, reactions)."""
+
+    def _decision_still_deliverable(
+        self, message: discord.Message, decision: EngagementDecision
+    ) -> bool:
+        """Recheck mute state after slow tail work (attachment downloads etc.).
+
+        A mute issued between the engagement decision and queue admission
+        drops the message — except literal @mentions, which break through.
+        """
+        if not decision.engage:
+            return False
+        context_id = self._conversation_tracker.get_context_id(message)
+        return not self._is_muted(context_id) or decision.reason == "mention"
 
     def _context_has_active_work(self, context_id: int) -> bool:
         queue = self._message_queues.get(context_id)
@@ -340,6 +363,8 @@ class EngagementGateMixin:
             return _skip("bot_dm")
         if self._charge_entry_rate_limit(message.author.id, exempt=access.is_owner):
             return _skip("rate_limited")
+        context_id = self._conversation_tracker.get_context_id(message)
+        self._conversation_tracker.mark_explicit(context_id, True)
         return self._engage(message, access, reason="dm")
 
     async def _decide_guild(
@@ -410,6 +435,7 @@ class EngagementGateMixin:
                 message.author.id, exempt=access.is_owner
             ):
                 return _skip("rate_limited")
+            self._conversation_tracker.mark_explicit(context_id, True)
             return self._engage(message, access, reason="task_continuation")
 
         if self._charge_entry_rate_limit(message.author.id, exempt=access.is_owner):
@@ -446,6 +472,9 @@ class EngagementGateMixin:
             message, recent_context=base_context
         ):
             return _skip("bot_disengage")
+        # An accepted interjection opens the engagement window: follow-ups
+        # within it ride the social triggers instead of paying for relevance.
+        self._conversation_tracker.mark_explicit(context_id, True)
         return self._engage(message, access, reason="relevance")
 
     async def _bot_continuation_allows(

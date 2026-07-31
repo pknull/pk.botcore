@@ -36,7 +36,9 @@ class ConversationTracker:
         self._pending_explicit[context_id] = explicit
 
     def record_response(self, context_id: int) -> None:
-        explicit = self._pending_explicit.pop(context_id, True)
+        # Default False: a response whose decision didn't mark itself explicit
+        # (stale/consumed flag under concurrency) must not open a window.
+        explicit = self._pending_explicit.pop(context_id, False)
         if explicit:
             self._last_spoke[context_id] = time.time()
 

@@ -494,6 +494,73 @@ class TestStopAndMute:
         assert decision.engage
 
     @async_test
+    async def test_two_muted_mentions_never_open_window(self):
+        # _pending_explicit is a single bit per channel: with two muted
+        # mentions in flight, the second record_response must not fall back
+        # to "explicit" and open a forbidden window.
+        host = make_host(MODE_SOCIAL)
+        await host._mute_channel(CHANNEL_ID, 600)
+        for _ in range(2):
+            msg = FakeMessage(f"<@{BOT_ID}> hi", human(), mentions=[host.bot.user])
+            decision = await host._decide_engagement(msg)
+            assert decision.engage
+        host._conversation_tracker.record_response(CHANNEL_ID)
+        host._conversation_tracker.record_response(CHANNEL_ID)
+        assert not host._conversation_tracker.is_engaged(CHANNEL_ID)
+
+    def test_record_response_without_decision_does_not_open_window(self):
+        host = make_host()
+        host._conversation_tracker.record_response(CHANNEL_ID)
+        assert not host._conversation_tracker.is_engaged(CHANNEL_ID)
+
+    @async_test
+    async def test_mute_recheck_drops_stale_decisions_except_mentions(self):
+        host = make_host(MODE_SOCIAL)
+        msg = FakeMessage("asha, hello", human())
+        named = await host._decide_engagement(msg)
+        assert named.engage
+        mention_msg = FakeMessage("hi", human(), mentions=[host.bot.user])
+        mentioned = await host._decide_engagement(mention_msg)
+        assert mentioned.engage
+        # Mute lands after the decisions but before queue admission.
+        await host._mute_channel(CHANNEL_ID, 600)
+        assert not host._decision_still_deliverable(msg, named)
+        assert host._decision_still_deliverable(mention_msg, mentioned)
+
+    @async_test
+    async def test_silence_restarts_worker_for_items_enqueued_during_purge(self):
+        host = make_host(MODE_SOCIAL)
+        host._message_queues[CHANNEL_ID] = asyncio.Queue()
+        host._message_queues[CHANNEL_ID].put_nowait(("old", "item"))
+
+        original_hook = host._on_work_item_discarded
+
+        async def enqueueing_hook(work_item):
+            await original_hook(work_item)
+            # Simulate a muted-@mention breakthrough arriving mid-purge.
+            queue = host._message_queues.setdefault(CHANNEL_ID, asyncio.Queue())
+            queue.put_nowait(("new", "item"))
+
+        host._on_work_item_discarded = enqueueing_hook
+        await host._silence_context(CHANNEL_ID)
+        worker = host._queue_workers.get(CHANNEL_ID)
+        assert worker is not None and not worker.done()
+        worker.cancel()
+
+    @async_test
+    async def test_listen_interjection_opens_engagement_window(self, monkeypatch):
+        # Design: an accepted interjection opens the window so follow-ups
+        # ride the social triggers instead of paying for relevance again.
+        patch_relevance(monkeypatch, True)
+        host = make_host(MODE_LISTEN)
+        decision = await host._decide_engagement(
+            FakeMessage("anyone know AAS lore?", human())
+        )
+        assert decision.engage
+        host._conversation_tracker.record_response(CHANNEL_ID)
+        assert host._conversation_tracker.is_engaged(CHANNEL_ID)
+
+    @async_test
     async def test_dm_stop_phrase_mutes_dm(self):
         host = make_host()
         dm = FakeMessage("stop", human(), guild=None)

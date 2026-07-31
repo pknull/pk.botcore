@@ -591,16 +591,31 @@ class TestBotDeferenceAndContinuation:
         assert decision.engage
 
     @async_test
-    async def test_bot_mention_gated_by_continuation(self, monkeypatch):
-        patch_continuation(monkeypatch, False)
+    async def test_bot_mention_bypasses_continuation_gate(self, monkeypatch):
+        # A direct peer @mention is guaranteed a reply, like a human mention.
+        async def explode(**kwargs):
+            raise AssertionError("continuation must not gate direct @mentions")
+
+        monkeypatch.setattr(classifiers, "check_bot_continuation", explode)
         host = make_host()
+        history = [FakeMessage("earlier reply", FakeUser(BOT_ID, "Asha", bot=True))]
+        channel = FakeHistoryChannel(history)
+        msg = FakeMessage("@Asha continue", other_bot(), channel=channel,
+                          mentions=[host.bot.user])
+        decision = await host._decide_engagement(msg)
+        assert decision.engage
+        assert decision.reason == "mention"
+
+    @async_test
+    async def test_bot_name_trigger_gated_by_continuation(self, monkeypatch):
+        patch_continuation(monkeypatch, False)
+        host = make_host(MODE_SOCIAL)
         history = [
             FakeMessage("earlier reply", FakeUser(BOT_ID, "Asha", bot=True)),
             FakeMessage("hi", human()),
         ]
         channel = FakeHistoryChannel(history)
-        msg = FakeMessage("@Asha continue", other_bot(), channel=channel,
-                          mentions=[host.bot.user])
+        msg = FakeMessage("asha, continue", other_bot(), channel=channel)
         decision = await host._decide_engagement(msg)
         assert not decision.engage
         assert decision.reason == "bot_disengage"
@@ -611,10 +626,9 @@ class TestBotDeferenceAndContinuation:
             raise AssertionError("continuation must not be called on first contact")
 
         monkeypatch.setattr(classifiers, "check_bot_continuation", explode)
-        host = make_host()
+        host = make_host(MODE_SOCIAL)
         channel = FakeHistoryChannel([FakeMessage("hi", human())])
-        msg = FakeMessage("@Asha hello", other_bot(), channel=channel,
-                          mentions=[host.bot.user])
+        msg = FakeMessage("asha, hello", other_bot(), channel=channel)
         decision = await host._decide_engagement(msg)
         assert decision.engage
 

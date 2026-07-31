@@ -12,6 +12,8 @@ import time
 
 import discord
 
+from .engagement import EngagementGateMixin, EngagementPolicy
+
 ACTIVE_TASK_CONTINUATION_RE = re.compile(
     r"^(?:"
     r"yes|yeah|yep|yup|no|nah|confirm|confirmed|do it|go ahead|continue|proceed|"
@@ -34,7 +36,9 @@ class ConversationTracker:
         self._pending_explicit[context_id] = explicit
 
     def record_response(self, context_id: int) -> None:
-        explicit = self._pending_explicit.pop(context_id, True)
+        # Default False: a response whose decision didn't mark itself explicit
+        # (stale/consumed flag under concurrency) must not open a window.
+        explicit = self._pending_explicit.pop(context_id, False)
         if explicit:
             self._last_spoke[context_id] = time.time()
 
@@ -65,7 +69,7 @@ class ActiveTaskState:
     command_driven: bool = False
 
 
-class AssistantRuntimeMixin:
+class AssistantRuntimeMixin(EngagementGateMixin):
     """Shared runtime helpers for assistant-style Discord cogs."""
 
     ACTIVE_TASK_WINDOW_SECONDS = 15 * 60
@@ -78,7 +82,11 @@ class AssistantRuntimeMixin:
         *,
         engagement_window: int = 300,
         queue_maxsize: int | None = None,
+        policy: EngagementPolicy | None = None,
     ) -> None:
+        if policy is not None:
+            engagement_window = policy.engagement_window
+        self._init_engagement(policy)
         if queue_maxsize is None:
             try:
                 queue_maxsize = int(

@@ -1,6 +1,8 @@
 """Unified LLM interface - backend-agnostic invocation.
 
-Dispatches to Claude or Codex based on backend parameter.
+Dispatches to Claude or Codex based on backend parameter. Engagement
+classifiers (relevance, bot continuation) live in pk_botcore.classifiers
+and are backend-independent by design.
 """
 
 import logging
@@ -10,13 +12,10 @@ from typing import Awaitable, Callable, Literal
 from .claude import (
     ClaudeResponse,
     invoke_claude,
-    check_message_relevance as check_relevance_claude,
-    check_bot_continuation,
 )
 from .codex import (
     CodexResponse,
     invoke_codex,
-    check_message_relevance_codex as check_relevance_codex,
 )
 
 logger = logging.getLogger('pk_botcore.llm')
@@ -134,44 +133,3 @@ async def invoke_llm(
         return LLMResponse.from_claude(resp)
 
 
-async def check_relevance(
-    content: str,
-    *,
-    backend: Backend = "claude",
-    bot_name: str = "Bot",
-    topics_of_interest: list[str] | None = None,
-    out_of_scope: list[str] | None = None,
-    recent_context: list[tuple[str, str]] | None = None,
-) -> bool:
-    """
-    Check if a message warrants a response from the bot.
-
-    Dispatches to the appropriate backend.
-
-    Args:
-        content: The message content to check
-        backend: "claude" or "codex"
-        bot_name: The bot's name for the prompt
-        topics_of_interest: Optional list of topics the bot will engage with
-        out_of_scope: Optional list of topics the bot should NOT respond to
-        recent_context: Optional list of (author_name, content) tuples for context
-
-    Returns:
-        True if the message is relevant, False otherwise
-    """
-    if backend == "codex":
-        return await check_relevance_codex(
-            content=content,
-            bot_name=bot_name,
-            topics_of_interest=topics_of_interest,
-            out_of_scope=out_of_scope,
-            recent_context=recent_context,
-        )
-    else:
-        return await check_relevance_claude(
-            content=content,
-            bot_name=bot_name,
-            topics_of_interest=topics_of_interest,
-            out_of_scope=out_of_scope,
-            recent_context=recent_context,
-        )

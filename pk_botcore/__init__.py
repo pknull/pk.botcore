@@ -15,6 +15,7 @@ from .sessions import UserSession, load_sessions, save_sessions
 from .channels import (
     ChannelConfig,
     MODE_MENTION,
+    MODE_SOCIAL,
     MODE_LISTEN,
     MODE_IGNORE,
     LISTEN_MODES,
@@ -28,6 +29,8 @@ from .claude import (
 from .llm import (
     LLMResponse,
     invoke_llm,
+)
+from .classifiers import (
     check_relevance,
     check_bot_continuation,
 )
@@ -57,6 +60,15 @@ from .cmd_executor import (
 )
 from .interactions import InteractionLogger
 from .assistant_runtime import AssistantRuntimeMixin, ConversationTracker, ActiveTaskState
+from .engagement import (
+    AccessResult,
+    EngagementDecision,
+    EngagementPolicy,
+    addressed_by_any_name,
+    another_bot_mentioned,
+    is_addressed_by_name,
+    is_stop_phrase,
+)
 from .storage import atomic_json_dump
 
 __version__ = "0.1.0"
@@ -69,6 +81,7 @@ __all__ = [
     # Channels
     "ChannelConfig",
     "MODE_MENTION",
+    "MODE_SOCIAL",
     "MODE_LISTEN",
     "MODE_IGNORE",
     "LISTEN_MODES",
@@ -115,6 +128,14 @@ __all__ = [
     "AssistantRuntimeMixin",
     "ConversationTracker",
     "ActiveTaskState",
+    # Engagement pipeline
+    "AccessResult",
+    "EngagementDecision",
+    "EngagementPolicy",
+    "addressed_by_any_name",
+    "another_bot_mentioned",
+    "is_addressed_by_name",
+    "is_stop_phrase",
     # Storage
     "atomic_json_dump",
 ]

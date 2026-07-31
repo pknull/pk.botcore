@@ -1,6 +1,8 @@
 """Unified LLM interface - backend-agnostic invocation.
 
-Dispatches to Claude or Codex based on backend parameter.
+Dispatches to Claude or Codex based on backend parameter. Engagement
+classifiers (relevance, bot continuation) live in pk_botcore.classifiers
+and are backend-independent by design.
 """
 
 import logging
@@ -10,10 +12,6 @@ from typing import Awaitable, Callable, Literal
 from .claude import (
     ClaudeResponse,
     invoke_claude,
-)
-from .classifiers import (
-    check_relevance as _check_relevance_unified,
-    check_bot_continuation,
 )
 from .codex import (
     CodexResponse,
@@ -135,34 +133,3 @@ async def invoke_llm(
         return LLMResponse.from_claude(resp)
 
 
-async def check_relevance(
-    content: str,
-    *,
-    backend: Backend = "claude",
-    bot_name: str = "Bot",
-    topics_of_interest: list[str] | None = None,
-    out_of_scope: list[str] | None = None,
-    recent_context: list[tuple[str, str]] | None = None,
-) -> bool:
-    """
-    Check if a message warrants a response from the bot.
-
-    Deprecated dispatcher: forwards to the unified strict classifier in
-    pk_botcore.classifiers. The `backend` parameter is ignored — classifier
-    verdicts run on one backend for every bot so both bots agree.
-
-    Returns:
-        True if the message is relevant, False otherwise (and False on any
-        classifier failure — fail closed).
-    """
-    if backend != "claude":
-        logger.debug(
-            "check_relevance backend=%r ignored; classifiers are unified", backend
-        )
-    return await _check_relevance_unified(
-        content,
-        bot_name=bot_name,
-        topics_of_interest=topics_of_interest,
-        out_of_scope=out_of_scope,
-        recent_context=recent_context,
-    )

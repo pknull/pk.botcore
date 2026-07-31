@@ -5,7 +5,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from tests.async_utils import async_test
-from pk_botcore import claude, codex
+from pk_botcore import claude, classifiers, codex
 from pk_botcore.limits import llm_slot
 
 
@@ -152,26 +152,7 @@ async def test_codex_stream_timeout_cancels_generator(monkeypatch):
 
 
 @async_test
-async def test_codex_relevance_helper_has_deadline(monkeypatch):
-    cancelled = asyncio.Event()
-
-    async def events():
-        try:
-            await asyncio.sleep(10)
-            yield None
-        finally:
-            cancelled.set()
-
-    install_fake_codex(monkeypatch, events)
-    assert (
-        await codex.check_message_relevance_codex("question", timeout=0.01)
-        is True
-    )
-    assert cancelled.is_set()
-
-
-@async_test
-async def test_relevance_and_continuation_helpers_have_deadlines(monkeypatch):
+async def test_classifier_helpers_have_deadlines_and_fail_closed(monkeypatch):
     cancelled_count = 0
 
     async def query(**kwargs):
@@ -183,12 +164,12 @@ async def test_relevance_and_continuation_helpers_have_deadlines(monkeypatch):
             cancelled_count += 1
 
     install_fake_claude(monkeypatch, query)
-    assert await claude.check_message_relevance("question", timeout=0.01) is True
+    assert await classifiers.check_relevance("question", timeout=0.01) is False
     assert (
-        await claude.check_bot_continuation(
+        await classifiers.check_bot_continuation(
             "A", "B", "question", [], timeout=0.01
         )
-        is True
+        is False
     )
     assert cancelled_count == 2
 

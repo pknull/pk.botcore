@@ -4,7 +4,7 @@ import json
 
 from tests.async_utils import async_test
 
-from pk_botcore import classifiers, llm
+from pk_botcore import classifiers
 from pk_botcore.channels import (
     LISTEN_MODES,
     MODE_MENTION,
@@ -133,29 +133,11 @@ class TestCheckBotContinuation:
         assert "(no recent context)" in captured["prompt"]
 
 
-class TestLlmShim:
-    @async_test
-    async def test_backend_is_ignored_and_forwarded(self, monkeypatch):
-        calls = []
-
-        async def fake_unified(content, **kwargs):
-            calls.append((content, kwargs))
-            return True
-
-        monkeypatch.setattr(llm, "_check_relevance_unified", fake_unified)
-        result = await llm.check_relevance(
-            "message", backend="codex", bot_name="Zalgo",
-            topics_of_interest=["a"], out_of_scope=["b"], recent_context=None,
-        )
-        assert result is True
-        content, kwargs = calls[0]
-        assert content == "message"
-        assert "backend" not in kwargs
-        assert kwargs["bot_name"] == "Zalgo"
-
-    def test_package_reexports_unified_continuation(self):
+class TestPackageExports:
+    def test_package_reexports_unified_classifiers(self):
         import pk_botcore
 
+        assert pk_botcore.check_relevance is classifiers.check_relevance
         assert pk_botcore.check_bot_continuation is classifiers.check_bot_continuation
 
 

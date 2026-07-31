@@ -12,6 +12,8 @@ import time
 
 import discord
 
+from .engagement import EngagementGateMixin, EngagementPolicy
+
 ACTIVE_TASK_CONTINUATION_RE = re.compile(
     r"^(?:"
     r"yes|yeah|yep|yup|no|nah|confirm|confirmed|do it|go ahead|continue|proceed|"
@@ -65,7 +67,7 @@ class ActiveTaskState:
     command_driven: bool = False
 
 
-class AssistantRuntimeMixin:
+class AssistantRuntimeMixin(EngagementGateMixin):
     """Shared runtime helpers for assistant-style Discord cogs."""
 
     ACTIVE_TASK_WINDOW_SECONDS = 15 * 60
@@ -78,7 +80,11 @@ class AssistantRuntimeMixin:
         *,
         engagement_window: int = 300,
         queue_maxsize: int | None = None,
+        policy: EngagementPolicy | None = None,
     ) -> None:
+        if policy is not None:
+            engagement_window = policy.engagement_window
+        self._init_engagement(policy)
         if queue_maxsize is None:
             try:
                 queue_maxsize = int(

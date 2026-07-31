@@ -132,6 +132,26 @@ class EngagementDecision:
     role: str = "User"
     is_owner: bool = False
     is_bot_message: bool = False
+    # True for soft engagements (relevance interjections, window follow-ups):
+    # the message wasn't addressed to us, so the generator may abstain.
+    abstainable: bool = False
+
+
+# Reasons where the bot chose to interject rather than being addressed.
+SOFT_ENGAGE_REASONS = frozenset({"relevance", "engagement"})
+
+# Appended to the LLM prompt for soft engagements only. A reply of exactly
+# [PASS] is suppressed by the cogs: no message, no window, no memory update.
+ABSTAIN_NOTE = (
+    "\n\n[Note: this message was not addressed to you directly - you are "
+    "choosing to interject. If you have nothing genuinely worth adding, "
+    "reply with exactly [PASS] and nothing else, and you will stay silent.]"
+)
+
+
+def is_abstain_reply(text: str) -> bool:
+    """True when a generated reply is the abstain sentinel."""
+    return text.strip().strip("`").strip() in ("[PASS]", "PASS")
 
 
 def _skip(reason: str) -> EngagementDecision:
@@ -269,6 +289,7 @@ class EngagementGateMixin:
         "rate_limited",
         "bot_disengage",
         "irrelevant",
+        "peer_addressed",
     })
 
     async def _decide_engagement(self, message: discord.Message) -> EngagementDecision:
@@ -454,6 +475,10 @@ class EngagementGateMixin:
     ) -> EngagementDecision:
         """Unaddressed message in a listen channel: relevance interjection."""
         policy = self._engagement_policy
+        # A message that opens with the peer bot's name belongs to their
+        # conversation - stay out without spending a relevance call.
+        if addressed_by_any_name(message.content or "", policy.peer_aliases):
+            return _skip("peer_addressed")
         active_task_state = self._get_recent_active_task_state(context_id)
         if (
             self._actor_may_continue_active_task(
@@ -558,6 +583,7 @@ class EngagementGateMixin:
             role=access.role,
             is_owner=access.is_owner,
             is_bot_message=bool(message.author.bot),
+            abstainable=reason in SOFT_ENGAGE_REASONS,
         )
 
     # -- interaction logging --------------------------------------------

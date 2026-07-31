@@ -715,3 +715,65 @@ class TestStopPhraseMatcher:
         assert not is_stop_phrase("don't stop talking", BOT_ID, aliases)
         assert not is_stop_phrase("we're good, shut up now.", BOT_ID, aliases)
         assert not is_stop_phrase("Kill it", BOT_ID, aliases)
+
+
+class TestSoftEngagementAbstain:
+    @async_test
+    async def test_relevance_engagement_is_abstainable(self, monkeypatch):
+        patch_relevance(monkeypatch, True)
+        host = make_host(MODE_LISTEN)
+        decision = await host._decide_engagement(
+            FakeMessage("anyone know AAS lore?", human())
+        )
+        assert decision.engage
+        assert decision.abstainable
+
+    @async_test
+    async def test_window_follow_up_is_abstainable(self):
+        host = make_host(MODE_SOCIAL)
+        engage_window(host)
+        decision = await host._decide_engagement(
+            FakeMessage("and another thing", human())
+        )
+        assert decision.engage
+        assert decision.abstainable
+
+    @async_test
+    async def test_direct_addresses_are_not_abstainable(self):
+        host = make_host(MODE_SOCIAL)
+        for content, mentions in [("asha, hi", []), ("hi", None)]:
+            msg = FakeMessage(
+                content, human(),
+                mentions=[host.bot.user] if mentions is None else mentions,
+            )
+            decision = await host._decide_engagement(msg)
+            assert decision.engage
+            assert not decision.abstainable
+
+    @async_test
+    async def test_dm_is_not_abstainable(self):
+        host = make_host()
+        decision = await host._decide_engagement(
+            FakeMessage("hello", human(), guild=None)
+        )
+        assert decision.engage
+        assert not decision.abstainable
+
+    @async_test
+    async def test_listen_skips_peer_addressed_messages(self, monkeypatch):
+        forbid_relevance(monkeypatch)
+        host = make_host(MODE_LISTEN)
+        decision = await host._decide_engagement(
+            FakeMessage("Zalgo, should I use you as the ship AI?", human())
+        )
+        assert not decision.engage
+        assert decision.reason == "peer_addressed"
+
+    def test_is_abstain_reply_matcher(self):
+        from pk_botcore.engagement import is_abstain_reply
+
+        assert is_abstain_reply("[PASS]")
+        assert is_abstain_reply("  PASS  ")
+        assert is_abstain_reply("```[PASS]```")
+        assert not is_abstain_reply("I'll pass on that question")
+        assert not is_abstain_reply("[PASS] but also here's a thought")

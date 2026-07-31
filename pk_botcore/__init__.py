@@ -62,11 +62,13 @@ from .cmd_executor import (
 from .interactions import InteractionLogger
 from .assistant_runtime import AssistantRuntimeMixin, ConversationTracker, ActiveTaskState
 from .engagement import (
+    ABSTAIN_NOTE,
     AccessResult,
     EngagementDecision,
     EngagementPolicy,
     addressed_by_any_name,
     another_bot_mentioned,
+    is_abstain_reply,
     is_addressed_by_name,
     is_stop_phrase,
 )
@@ -142,11 +144,13 @@ __all__ = [
     "ConversationTracker",
     "ActiveTaskState",
     # Engagement pipeline
+    "ABSTAIN_NOTE",
     "AccessResult",
     "EngagementDecision",
     "EngagementPolicy",
     "addressed_by_any_name",
     "another_bot_mentioned",
+    "is_abstain_reply",
     "is_addressed_by_name",
     "is_stop_phrase",
     # Channel memory

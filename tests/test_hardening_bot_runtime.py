@@ -83,10 +83,13 @@ async def test_command_sync_retries_after_partial_guild_failure():
     assert tree.sync_calls == [None, 11, None, 11]
 
 
-def test_bot_defaults_to_no_allowed_mentions():
+def test_bot_defaults_allow_user_pings_only():
+    # User-approved posture (2026-07-31): individual user pings allowed
+    # (bounded, attributable); @everyone, role pings, and reply-pings
+    # remain suppressed regardless of LLM output.
     bot = create_bot(intents=discord.Intents.none(), description="test")
     assert bot.allowed_mentions.everyone is False
-    assert bot.allowed_mentions.users is False
+    assert bot.allowed_mentions.users is True
     assert bot.allowed_mentions.roles is False
     assert bot.allowed_mentions.replied_user is False
 

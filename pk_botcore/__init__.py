@@ -15,6 +15,7 @@ from .sessions import UserSession, load_sessions, save_sessions
 from .channels import (
     ChannelConfig,
     MODE_MENTION,
+    MODE_SOCIAL,
     MODE_LISTEN,
     MODE_IGNORE,
     LISTEN_MODES,
@@ -69,6 +70,7 @@ __all__ = [
     # Channels
     "ChannelConfig",
     "MODE_MENTION",
+    "MODE_SOCIAL",
     "MODE_LISTEN",
     "MODE_IGNORE",
     "LISTEN_MODES",

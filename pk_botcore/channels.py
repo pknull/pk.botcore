@@ -10,16 +10,17 @@ logger = logging.getLogger('pk_botcore.channels')
 
 # Channel listen modes
 MODE_MENTION = "mention"
+MODE_SOCIAL = "social"
 MODE_LISTEN = "listen"
 MODE_IGNORE = "ignore"
-LISTEN_MODES = (MODE_MENTION, MODE_LISTEN, MODE_IGNORE)
+LISTEN_MODES = (MODE_MENTION, MODE_SOCIAL, MODE_LISTEN, MODE_IGNORE)
 
 
 @dataclass
 class ChannelConfig:
     """Channel listen mode configuration."""
     channel_id: int
-    mode: str  # "mention", "listen", "ignore"
+    mode: str  # "mention", "social", "listen", "ignore"
     set_by: int  # User ID who configured
     set_at: str  # ISO timestamp
 

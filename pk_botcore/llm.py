@@ -10,13 +10,14 @@ from typing import Awaitable, Callable, Literal
 from .claude import (
     ClaudeResponse,
     invoke_claude,
-    check_message_relevance as check_relevance_claude,
+)
+from .classifiers import (
+    check_relevance as _check_relevance_unified,
     check_bot_continuation,
 )
 from .codex import (
     CodexResponse,
     invoke_codex,
-    check_message_relevance_codex as check_relevance_codex,
 )
 
 logger = logging.getLogger('pk_botcore.llm')
@@ -146,32 +147,22 @@ async def check_relevance(
     """
     Check if a message warrants a response from the bot.
 
-    Dispatches to the appropriate backend.
-
-    Args:
-        content: The message content to check
-        backend: "claude" or "codex"
-        bot_name: The bot's name for the prompt
-        topics_of_interest: Optional list of topics the bot will engage with
-        out_of_scope: Optional list of topics the bot should NOT respond to
-        recent_context: Optional list of (author_name, content) tuples for context
+    Deprecated dispatcher: forwards to the unified strict classifier in
+    pk_botcore.classifiers. The `backend` parameter is ignored — classifier
+    verdicts run on one backend for every bot so both bots agree.
 
     Returns:
-        True if the message is relevant, False otherwise
+        True if the message is relevant, False otherwise (and False on any
+        classifier failure — fail closed).
     """
-    if backend == "codex":
-        return await check_relevance_codex(
-            content=content,
-            bot_name=bot_name,
-            topics_of_interest=topics_of_interest,
-            out_of_scope=out_of_scope,
-            recent_context=recent_context,
+    if backend != "claude":
+        logger.debug(
+            "check_relevance backend=%r ignored; classifiers are unified", backend
         )
-    else:
-        return await check_relevance_claude(
-            content=content,
-            bot_name=bot_name,
-            topics_of_interest=topics_of_interest,
-            out_of_scope=out_of_scope,
-            recent_context=recent_context,
-        )
+    return await _check_relevance_unified(
+        content,
+        bot_name=bot_name,
+        topics_of_interest=topics_of_interest,
+        out_of_scope=out_of_scope,
+        recent_context=recent_context,
+    )

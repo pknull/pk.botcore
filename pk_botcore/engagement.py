@@ -258,7 +258,34 @@ class EngagementGateMixin:
 
     # -- pipeline -------------------------------------------------------
 
+    # Skip reasons worth surfacing in logs (the silent-drop cases an operator
+    # would otherwise have to diagnose by inference). Ordinary non-triggers
+    # (no_trigger, command_prefix, ignored, self, bot_dm) stay quiet.
+    NOTABLE_SKIP_REASONS = frozenset({
+        "deferred",
+        "muted",
+        "stop",
+        "unauthorized",
+        "rate_limited",
+        "bot_disengage",
+        "irrelevant",
+    })
+
     async def _decide_engagement(self, message: discord.Message) -> EngagementDecision:
+        """Run the gate sequence and surface notable silent drops."""
+        decision = await self._run_engagement_gates(message)
+        if not decision.engage and decision.reason in self.NOTABLE_SKIP_REASONS:
+            runtime_logger = getattr(self, "_runtime_logger", None)
+            log = runtime_logger() if callable(runtime_logger) else logger
+            log.info(
+                "Engagement skip: %s (author=%s channel=%s)",
+                decision.reason,
+                getattr(message.author, "display_name", message.author.id),
+                getattr(message.channel, "id", None),
+            )
+        return decision
+
+    async def _run_engagement_gates(self, message: discord.Message) -> EngagementDecision:
         """Run the canonical gate sequence for an incoming message."""
         policy = self._engagement_policy
         if policy is None:
@@ -404,7 +431,14 @@ class EngagementGateMixin:
 
         if self._charge_entry_rate_limit(message.author.id, exempt=access.is_owner):
             return _skip("rate_limited")
-        if is_bot_message and not await self._bot_continuation_allows(message):
+        # Direct peer @mentions are guaranteed a reply, like human mentions:
+        # rate caps and the no-window rule for bots bound any ping-pong. The
+        # continuation gate still guards name-addressing and listen relevance.
+        if (
+            is_bot_message
+            and trigger != "mention"
+            and not await self._bot_continuation_allows(message)
+        ):
             return _skip("bot_disengage")
 
         # Muted @mentions answer but must not open an engagement window.

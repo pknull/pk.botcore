@@ -7,7 +7,7 @@ and are backend-independent by design.
 
 import logging
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from .claude import (
     ClaudeResponse,
@@ -69,6 +69,7 @@ async def invoke_llm(
     session_id: str | None = None,
     timeout: int = 120,
     allowed_tools: list[str] | None = None,  # Required for Claude, ignored for Codex
+    can_use_tool: Callable[..., Awaitable[Any]] | None = None,  # Claude only
     sandbox_mode: str = "read-only",  # Codex only
     status_callback: Callable[[str], Awaitable[None]] | None = None,
     text_callback: Callable[[str], Awaitable[None]] | None = None,
@@ -89,6 +90,7 @@ async def invoke_llm(
         session_id: Optional session/thread ID for continuity
         timeout: Command timeout in seconds
         allowed_tools: List of allowed tools (Claude only)
+        can_use_tool: Optional per-call tool vetting callback (Claude only)
         sandbox_mode: Sandbox mode (Codex only): "read-only", "workspace-write", "danger-full-access"
         status_callback: Optional async callback for status updates
         text_callback: Optional async callback for streaming text chunks
@@ -127,6 +129,7 @@ async def invoke_llm(
             session_id=session_id,
             timeout=timeout,
             allowed_tools=tools,
+            can_use_tool=can_use_tool,
             status_callback=status_callback,
             text_callback=text_callback,
         )

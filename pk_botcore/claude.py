@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from .limits import llm_slot
 
@@ -90,6 +90,7 @@ async def invoke_claude(
     session_id: str | None = None,
     timeout: int = 120,
     permission_mode: str = "default",
+    can_use_tool: Callable[..., Awaitable[Any]] | None = None,
     status_callback: Callable[[str], Awaitable[None]] | None = None,
     text_callback: Callable[[str], Awaitable[None]] | None = None,
 ) -> ClaudeResponse:
@@ -109,6 +110,9 @@ async def invoke_claude(
         session_id: Optional session ID for continuity
         timeout: Command timeout in seconds
         permission_mode: Permission mode for tool execution
+        can_use_tool: Optional async callback vetting each tool call; lets a
+            caller deny individual invocations that the allowed_tools list
+            alone cannot express (e.g. a write to a protected path)
         status_callback: Optional async callback for status updates
         text_callback: Optional async callback for streaming text chunks
 
@@ -153,6 +157,7 @@ async def invoke_claude(
         cwd=cwd,
         allowed_tools=allowed_tools,
         permission_mode=permission_mode,
+        can_use_tool=can_use_tool,
         resume=session_id,
         model=model,
         fallback_model=fallback_model,

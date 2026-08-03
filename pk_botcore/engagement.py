@@ -278,16 +278,24 @@ class EngagementGateMixin:
 
     # -- pipeline -------------------------------------------------------
 
-    # Skip reasons worth surfacing in logs (the silent-drop cases an operator
-    # would otherwise have to diagnose by inference). Ordinary non-triggers
-    # (no_trigger, command_prefix, ignored, self, bot_dm) stay quiet.
+    # Skip reasons worth surfacing at INFO: genuinely anomalous drops an
+    # operator would otherwise have to diagnose by inference. Ordinary
+    # non-triggers (no_trigger, command_prefix, ignored, self, bot_dm)
+    # stay quiet.
     NOTABLE_SKIP_REASONS = frozenset({
-        "deferred",
-        "muted",
         "stop",
         "unauthorized",
         "rate_limited",
         "bot_disengage",
+    })
+
+    # Skip reasons that are the ordinary outcome in a two-bot listen setup
+    # (relevance misses, peer traffic, mute windows, deferring to a mentioned
+    # peer). Logged at DEBUG so a live console stays readable; relevance
+    # outcomes are also recorded as structured interaction events.
+    ROUTINE_SKIP_REASONS = frozenset({
+        "deferred",
+        "muted",
         "irrelevant",
         "peer_addressed",
     })
@@ -295,15 +303,23 @@ class EngagementGateMixin:
     async def _decide_engagement(self, message: discord.Message) -> EngagementDecision:
         """Run the gate sequence and surface notable silent drops."""
         decision = await self._run_engagement_gates(message)
-        if not decision.engage and decision.reason in self.NOTABLE_SKIP_REASONS:
-            runtime_logger = getattr(self, "_runtime_logger", None)
-            log = runtime_logger() if callable(runtime_logger) else logger
-            log.info(
-                "Engagement skip: %s (author=%s channel=%s)",
-                decision.reason,
-                getattr(message.author, "display_name", message.author.id),
-                getattr(message.channel, "id", None),
-            )
+        if not decision.engage:
+            if decision.reason in self.NOTABLE_SKIP_REASONS:
+                level = logging.INFO
+            elif decision.reason in self.ROUTINE_SKIP_REASONS:
+                level = logging.DEBUG
+            else:
+                level = None
+            if level is not None:
+                runtime_logger = getattr(self, "_runtime_logger", None)
+                log = runtime_logger() if callable(runtime_logger) else logger
+                log.log(
+                    level,
+                    "Engagement skip: %s (author=%s channel=%s)",
+                    decision.reason,
+                    getattr(message.author, "display_name", message.author.id),
+                    getattr(message.channel, "id", None),
+                )
         return decision
 
     async def _run_engagement_gates(self, message: discord.Message) -> EngagementDecision:

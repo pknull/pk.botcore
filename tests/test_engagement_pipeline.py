@@ -6,6 +6,7 @@ rate limiting, bot deference, and continuation gating.
 """
 
 import asyncio
+import logging
 import time
 
 from tests.async_utils import async_test
@@ -777,3 +778,45 @@ class TestSoftEngagementAbstain:
         assert is_abstain_reply("```[PASS]```")
         assert not is_abstain_reply("I'll pass on that question")
         assert not is_abstain_reply("[PASS] but also here's a thought")
+
+
+class TestSkipLogging:
+    """Skip-log tiering: anomalous drops at INFO, routine drops at DEBUG."""
+
+    def _skip_records(self, caplog):
+        return [
+            r for r in caplog.records if "Engagement skip" in r.getMessage()
+        ]
+
+    @async_test
+    async def test_routine_skip_logs_at_debug(self, monkeypatch, caplog):
+        patch_relevance(monkeypatch, False)
+        host = make_host(MODE_LISTEN)
+        with caplog.at_level(logging.DEBUG):
+            decision = await host._decide_engagement(
+                FakeMessage("unrelated chatter", human())
+            )
+        assert decision.reason == "irrelevant"
+        assert [r.levelno for r in self._skip_records(caplog)] == [logging.DEBUG]
+
+    @async_test
+    async def test_notable_skip_logs_at_info(self, caplog):
+        host = make_host(MODE_SOCIAL, rate_limit=1)
+        first = FakeMessage("hi", human(), mentions=[host.bot.user])
+        assert (await host._decide_engagement(first)).engage
+        with caplog.at_level(logging.DEBUG):
+            decision = await host._decide_engagement(
+                FakeMessage("hi again", human(), mentions=[host.bot.user])
+            )
+        assert decision.reason == "rate_limited"
+        assert [r.levelno for r in self._skip_records(caplog)] == [logging.INFO]
+
+    @async_test
+    async def test_ordinary_non_trigger_stays_quiet(self, caplog):
+        host = make_host(MODE_SOCIAL)
+        with caplog.at_level(logging.DEBUG):
+            decision = await host._decide_engagement(
+                FakeMessage("just chatting", human())
+            )
+        assert decision.reason == "no_trigger"
+        assert not self._skip_records(caplog)

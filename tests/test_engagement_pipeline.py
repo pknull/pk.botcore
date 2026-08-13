@@ -92,6 +92,22 @@ class FakeMessage:
         self.reference = None
 
 
+class ContentTrapMessage:
+    """Guild message whose text must not be inspected by the engagement path."""
+
+    def __init__(self, author, *, channel=None):
+        self.author = author
+        self.guild = FakeGuild()
+        self.channel = channel or FakeChannel()
+        self.mentions = []
+        self.attachments = []
+        self.reference = None
+
+    @property
+    def content(self):
+        raise AssertionError("message content must not be read")
+
+
 class FakeBot:
     def __init__(self, bot_user):
         self.user = bot_user
@@ -198,12 +214,23 @@ class TestIgnoreMode:
 
     @async_test
     async def test_command_prefix_skipped(self):
-        host = make_host()
+        host = make_host(MODE_SOCIAL)
         decision = await host._decide_engagement(FakeMessage("!roll d20", human()))
         assert decision.reason == "command_prefix"
 
 
 class TestMentionMode:
+    @async_test
+    async def test_unmentioned_message_exits_before_content_or_access(self):
+        async def explode(message):
+            raise AssertionError("access hook must not run")
+
+        host = make_host(MODE_MENTION, access_check=explode)
+        decision = await host._decide_engagement(ContentTrapMessage(human()))
+
+        assert not decision.engage
+        assert decision.reason == "no_trigger"
+
     @async_test
     async def test_mention_engages_with_stripped_prompt(self):
         host = make_host()  # unconfigured channel defaults to mention

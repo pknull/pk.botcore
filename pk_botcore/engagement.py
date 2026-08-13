@@ -330,17 +330,28 @@ class EngagementGateMixin:
 
         if message.author.id == self.bot.user.id:
             return _skip("self")
-        content = message.content or ""
-        if content.startswith(tuple(policy.command_prefixes)):
-            return _skip("command_prefix")
 
         mode = self._resolve_channel_mode(message)
         if message.guild is not None and mode == MODE_IGNORE:
             return _skip("ignored")
 
+        # Mention-only channels have a single trigger. Exit before inspecting
+        # content, conversation state, stop phrases, or access policy so
+        # ordinary channel traffic remains wholly outside the bot pipeline.
+        is_mentioned = self.bot.user in message.mentions
+        if (
+            message.guild is not None
+            and mode == MODE_MENTION
+            and not is_mentioned
+        ):
+            return _skip("no_trigger")
+
+        content = message.content or ""
+        if content.startswith(tuple(policy.command_prefixes)):
+            return _skip("command_prefix")
+
         context_id = self._conversation_tracker.get_context_id(message)
         muted = self._is_muted(context_id)
-        is_mentioned = self.bot.user in message.mentions
         if muted and not is_mentioned:
             return _skip("muted")
         if not muted and await self._stop_phrase_gate(message, context_id):
